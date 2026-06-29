@@ -1,0 +1,112 @@
+"""Utility helpers for drawing, FPS tracking, and JSONL logging."""
+
+import json
+import time
+from pathlib import Path
+from typing import Iterable, Optional
+
+import cv2
+
+from config import CENTER_REGION, LEFT_REGION, RIGHT_REGION
+from haptos_types import Detection, FrameResult
+
+
+class FPSCounter:
+    """Small moving FPS helper based on time between processed frames."""
+
+    def __init__(self, smoothing: float = 0.9):
+        self.smoothing = smoothing
+        self._last_time: Optional[float] = None
+        self._fps = 0.0
+
+    def update(self) -> float:
+        now = time.perf_counter()
+        if self._last_time is None:
+            self._last_time = now
+            return 0.0
+
+        elapsed = now - self._last_time
+        self._last_time = now
+        if elapsed <= 0:
+            return self._fps
+
+        instant_fps = 1.0 / elapsed
+        if self._fps == 0.0:
+            self._fps = instant_fps
+        else:
+            self._fps = self.smoothing * self._fps + (1.0 - self.smoothing) * instant_fps
+        return self._fps
+
+
+class JsonlLogger:
+    """Append frame results as newline-delimited JSON for later analysis."""
+
+    def __init__(self, path: str):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = self.path.open("a", encoding="utf-8")
+
+    def write(self, result: FrameResult) -> None:
+        self._file.write(json.dumps(result.to_dict()) + "\n")
+        self._file.flush()
+
+    def close(self) -> None:
+        self._file.close()
+
+
+def draw_regions(frame) -> None:
+    """Draw vertical dividers for LEFT/CENTER/RIGHT navigation regions."""
+
+    height, width = frame.shape[:2]
+    x1 = width // 3
+    x2 = (2 * width) // 3
+    color = (220, 220, 220)
+
+    cv2.line(frame, (x1, 0), (x1, height), color, 1)
+    cv2.line(frame, (x2, 0), (x2, height), color, 1)
+
+    labels = [
+        (LEFT_REGION, 10),
+        (CENTER_REGION, x1 + 10),
+        (RIGHT_REGION, x2 + 10),
+    ]
+    for label, x in labels:
+        cv2.putText(frame, label, (x, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+
+def draw_detections(frame, detections: Iterable[Detection]) -> None:
+    """Draw bounding boxes and labels on a frame in place."""
+
+    for detection in detections:
+        x1, y1, x2, y2 = detection.bbox
+        color = (0, 0, 255) if detection.is_obstacle else (0, 180, 0)
+        label = f"{detection.class_name} {detection.region} {detection.confidence:.2f}"
+
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(
+            frame,
+            label,
+            (x1, max(y1 - 8, 18)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            color,
+            2,
+        )
+
+
+def draw_overlay(frame, result: FrameResult) -> None:
+    draw_regions(frame)
+    draw_detections(frame, result.detections)
+    status = f"command={result.command} fps={result.fps:.1f}"
+    cv2.putText(frame, status, (10, frame.shape[0] - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2)
+
+
+def format_console_result(result: FrameResult) -> str:
+    if result.detections:
+        detections = ", ".join(
+            f"{d.class_name}:{d.region.lower()}:{d.confidence:.2f}"
+            for d in result.detections
+        )
+    else:
+        detections = "none"
+    return f"Frame {result.frame_index} | command={result.command} | detections={detections}"
