@@ -6,11 +6,21 @@ import sys
 import cv2
 
 from haptos.cv.camera import VideoSource
-from haptos.config import DEFAULT_CONFIDENCE, DEFAULT_MODEL
-from haptos.cv.detector import YoloDetector
-from haptos.types import FrameResult
+from haptos.config import (
+    DEFAULT_CONFIDENCE,
+    DEFAULT_MODEL,
+    LIDAR_DEFAULT_BAUDRATE,
+    LIDAR_DEFAULT_MIN_SAMPLES,
+    LIDAR_DEFAULT_SCAN_TIMEOUT_S,
+    LIDAR_SOURCE_NONE,
+    LIDAR_SOURCE_SERIAL,
+)
 from haptos.cv.postprocess import filter_and_enrich_detections, generate_navigation_hint
 from haptos.cv.utils import FPSCounter, JsonlLogger, draw_overlay, format_console_result
+from haptos.sensor.lidar_buffer import LidarFrameBuffer
+from haptos.sensor.lidar_filter import filter_lidar_scan
+from haptos.sensor.lidar_reader import create_lidar_reader
+from haptos.types import FrameResult
 
 
 def parse_args() -> argparse.Namespace:
@@ -20,6 +30,40 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--conf", type=float, default=DEFAULT_CONFIDENCE, help="Confidence threshold")
     parser.add_argument("--show", action="store_true", help="Display annotated frames")
     parser.add_argument("--save-log", help="Optional path for JSONL frame results")
+    parser.add_argument(
+        "--lidar-source",
+        choices=[LIDAR_SOURCE_NONE, LIDAR_SOURCE_SERIAL],
+        default=LIDAR_SOURCE_NONE,
+        help="Optional LiDAR source",
+    )
+    parser.add_argument(
+        "--lidar-port",
+        help="Serial port for LiDAR data, for example COM5",
+    )
+    parser.add_argument(
+        "--lidar-baudrate",
+        type=int,
+        default=LIDAR_DEFAULT_BAUDRATE,
+        help="Serial baudrate for LiDAR data",
+    )
+    parser.add_argument(
+        "--lidar-scan-timeout",
+        type=float,
+        default=LIDAR_DEFAULT_SCAN_TIMEOUT_S,
+        help="Maximum seconds to collect samples for one LiDAR scan",
+    )
+    parser.add_argument(
+        "--lidar-min-samples",
+        type=int,
+        default=LIDAR_DEFAULT_MIN_SAMPLES,
+        help="Minimum samples needed before accepting a scan boundary",
+    )
+    parser.add_argument(
+        "--lidar-buffer-size",
+        type=int,
+        default=10,
+        help="Number of recent filtered LiDAR frames to retain",
+    )
     return parser.parse_args()
 
 
@@ -30,9 +74,24 @@ def main() -> int:
     logger = None
     try:
         source = VideoSource(args.source)
+        try:
+            from haptos.cv.detector import YoloDetector
+        except ModuleNotFoundError as exc:
+            if exc.name == "ultralytics":
+                raise RuntimeError("Ultralytics is not installed. Run: pip install -r requirements.txt") from exc
+            raise
+
         detector = YoloDetector(args.model, args.conf)
         fps_counter = FPSCounter()
         logger = JsonlLogger(args.save_log) if args.save_log else None
+        lidar_reader = create_lidar_reader(
+            source=args.lidar_source,
+            port=args.lidar_port,
+            baudrate=args.lidar_baudrate,
+            scan_timeout_s=args.lidar_scan_timeout,
+            min_samples=args.lidar_min_samples,
+        )
+        lidar_buffer = LidarFrameBuffer(args.lidar_buffer_size) if lidar_reader is not None else None
 
         frame_index = 0
         while True:
@@ -45,6 +104,14 @@ def main() -> int:
             frame_height, frame_width = frame.shape[:2]
             detections = filter_and_enrich_detections(raw_detections, frame_width, args.conf)
             command = generate_navigation_hint(detections)
+            lidar_summary = None
+
+            if lidar_reader is not None and lidar_buffer is not None:
+                raw_lidar_scan = lidar_reader.read()
+                filtered_lidar = filter_lidar_scan(raw_lidar_scan)
+                lidar_buffer.add(filtered_lidar)
+                lidar_summary = filtered_lidar.to_summary()
+
             fps = fps_counter.update()
 
             result = FrameResult(
@@ -52,6 +119,7 @@ def main() -> int:
                 command=command,
                 detections=detections,
                 fps=fps,
+                lidar_summary=lidar_summary,
             )
 
             print(format_console_result(result))
@@ -80,6 +148,8 @@ def main() -> int:
             source.release()
         if logger is not None:
             logger.close()
+        if "lidar_reader" in locals() and lidar_reader is not None:
+            lidar_reader.close()
         if args.show:
             cv2.destroyAllWindows()
 

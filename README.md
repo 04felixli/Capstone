@@ -2,9 +2,9 @@
 
 Laptop-testable computer vision subsystem for **Haptos**, an embedded wearable navigation system.
 
-This module reads frames from a webcam, video file, or image file, runs a lightweight Ultralytics YOLO model, maps detections into `LEFT`, `CENTER`, and `RIGHT` image regions, and emits structured frame results for later sensor fusion and haptic feedback.
+This module reads frames from a webcam, video file, or image file, runs a lightweight Ultralytics YOLO model, maps detections into `LEFT`, `CENTER`, and `RIGHT` image regions, and can read serial LiDAR scans for distance sensing.
 
-No GPIO or hardware-specific code is included in this version.
+No GPIO-specific code is included. LiDAR integration uses a serial port so the sensor driver can run on the host computer, microcontroller, or embedded platform.
 
 ## Project Layout
 
@@ -13,25 +13,32 @@ haptos-cv/
 README.md
 requirements.txt
 main.py
-config.py
-camera.py
-detector.py
-postprocess.py
-types.py
-utils.py
-haptos_types.py
+haptos/
+  config.py
+  types.py
+  cv/
+    camera.py
+    detector.py
+    postprocess.py
+    utils.py
+  sensor/
+    lidar_buffer.py
+    lidar_filter.py
+    lidar_reader.py
+tests/
+  sensor/
+    test_lidar.py
 ```
 
-`types.py` is kept for the requested layout. Runtime imports use
-`haptos_types.py` to avoid colliding with Python's standard-library `types`
-module.
+Runtime imports use the `haptos` package layout so project modules do not
+collide with Python standard-library modules.
 
 ## Setup
 
 Use Python 3.10 or newer if possible.
 
 ```bash
-cd haptos-cv
+cd Capstone
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -71,6 +78,35 @@ Use a different model or confidence threshold:
 python main.py --source webcam --model yolov8n.pt --conf 0.5 --show
 ```
 
+Run with a serial-connected LiDAR:
+
+```bash
+python -m serial.tools.list_ports
+python main.py --source webcam --lidar-source serial --lidar-port COM5 --lidar-baudrate 115200
+```
+
+The serial LiDAR reader expects one 2D sample per line:
+
+```text
+angle_deg,distance_mm,quality
+```
+
+The quality field is optional. These are also accepted:
+
+```text
+12.5,840,15
+12.5 840 15
+12.5;840
+```
+
+A line containing `SCAN`, `START`, or `END` marks a scan boundary. This format is intended for a LiDAR vendor SDK or microcontroller layer that converts the sensor's native protocol into simple serial samples.
+
+Run LiDAR-only unit tests:
+
+```bash
+python -m unittest tests.sensor.test_lidar
+```
+
 ## Output
 
 Console output is intentionally concise:
@@ -79,12 +115,19 @@ Console output is intentionally concise:
 Frame 120 | command=STOP | detections=person:center:0.91
 ```
 
+With serial LiDAR enabled, console rows also include a filtered LiDAR summary:
+
+```text
+Frame 120 | command=STOP | detections=person:center:0.91 | lidar=none:points=33:nearest=1.17m
+```
+
 Each logged JSONL row contains:
 
 - frame index
 - navigation command
 - FPS estimate
 - detections with class name, confidence, bounding box, region, and obstacle flag
+- optional LiDAR summary with fault state, point count, and nearest/median/farthest filtered distance
 
 ## Navigation Logic
 
@@ -120,8 +163,8 @@ This is deliberately simple so later work can combine CV output with ultrasonic 
 4. Measure rough latency and FPS.
    Run with `--show` for visual debugging, then without `--show` for a cleaner FPS estimate. Review printed FPS and JSONL logs.
 
-5. Plan later integration.
-   Feed each `FrameResult` into a sensor fusion layer. That layer can compare camera obstacle regions with ultrasonic distance readings, then choose vibration motor intensity and side-specific haptic cues.
+5. Test LiDAR serial input.
+   Confirm that the LiDAR driver outputs angle/distance samples, filtered point counts are nonzero for nearby objects, and nearest distance changes when obstacles move.
 
 ## Raspberry Pi Notes
 

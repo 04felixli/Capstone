@@ -100,6 +100,12 @@ def draw_overlay(frame, result: FrameResult) -> None:
     status = f"command={result.command} fps={result.fps:.1f}"
     cv2.putText(frame, status, (10, frame.shape[0] - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2)
 
+    if result.lidar_summary is not None:
+        lidar = result.lidar_summary
+        nearest = _format_optional_distance(lidar.nearest_distance_m)
+        lidar_status = f"lidar={lidar.fault_state} points={lidar.point_count} nearest={nearest}"
+        cv2.putText(frame, lidar_status, (10, frame.shape[0] - 46), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 0), 2)
+
 
 def format_console_result(result: FrameResult) -> str:
     if result.detections:
@@ -109,4 +115,20 @@ def format_console_result(result: FrameResult) -> str:
         )
     else:
         detections = "none"
-    return f"Frame {result.frame_index} | command={result.command} | detections={detections}"
+
+    lidar = ""
+    if result.lidar_summary is not None:
+        summary = result.lidar_summary
+        lidar = (
+            f" | lidar={summary.fault_state}:"
+            f"points={summary.point_count}:"
+            f"nearest={_format_optional_distance(summary.nearest_distance_m)}"
+        )
+
+    return f"Frame {result.frame_index} | command={result.command} | detections={detections}{lidar}"
+
+
+def _format_optional_distance(distance_m: Optional[float]) -> str:
+    if distance_m is None:
+        return "n/a"
+    return f"{distance_m:.2f}m"
