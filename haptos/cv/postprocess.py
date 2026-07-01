@@ -2,7 +2,7 @@
 
 from typing import Iterable, List, Set
 
-from config import (
+from haptos.config import (
     CENTER_REGION,
     COMMAND_FORWARD,
     COMMAND_GO_LEFT,
@@ -12,7 +12,7 @@ from config import (
     OBSTACLE_CLASSES,
     RIGHT_REGION,
 )
-from haptos_types import Detection
+from haptos.types import Detection
 
 
 def map_bbox_to_region(bbox, frame_width: int) -> str:

@@ -7,8 +7,8 @@ from typing import Iterable, Optional
 
 import cv2
 
-from config import CENTER_REGION, LEFT_REGION, RIGHT_REGION
-from haptos_types import Detection, FrameResult
+from haptos.config import CENTER_REGION, LEFT_REGION, RIGHT_REGION
+from haptos.types import Detection, FrameResult
 
 
 class FPSCounter:

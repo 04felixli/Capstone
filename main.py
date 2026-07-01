@@ -5,12 +5,12 @@ import sys
 
 import cv2
 
-from camera import VideoSource
-from config import DEFAULT_CONFIDENCE, DEFAULT_MODEL
-from detector import YoloDetector
-from haptos_types import FrameResult
-from postprocess import filter_and_enrich_detections, generate_navigation_hint
-from utils import FPSCounter, JsonlLogger, draw_overlay, format_console_result
+from haptos.cv.camera import VideoSource
+from haptos.config import DEFAULT_CONFIDENCE, DEFAULT_MODEL
+from haptos.cv.detector import YoloDetector
+from haptos.types import FrameResult
+from haptos.cv.postprocess import filter_and_enrich_detections, generate_navigation_hint
+from haptos.cv.utils import FPSCounter, JsonlLogger, draw_overlay, format_console_result
 
 
 def parse_args() -> argparse.Namespace:

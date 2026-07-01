@@ -4,7 +4,7 @@ from typing import List
 
 from ultralytics import YOLO
 
-from haptos_types import Detection
+from haptos.types import Detection
 
 
 class YoloDetector:

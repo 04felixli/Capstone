@@ -1,0 +1,23 @@
+* text=auto
+
+# Python and shell always LF (runs on Pi/Linux)
+*.py   text eol=lf
+*.sh   text eol=lf
+
+# Firmware C/C++ source always LF
+*.c    text eol=lf
+*.h    text eol=lf
+*.cpp  text eol=lf
+
+# Model weights and media are binary — no line-ending conversion or diffing
+*.pt      binary
+*.jpg     binary
+*.jpeg    binary
+*.png     binary
+*.bmp     binary
+*.webp    binary
+*.tif     binary
+*.tiff    binary
+*.mp4     binary
+*.avi     binary
+*.mov     binary

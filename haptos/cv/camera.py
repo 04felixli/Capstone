@@ -5,7 +5,7 @@ from typing import Optional, Tuple, Union
 
 import cv2
 
-from config import IMAGE_EXTENSIONS
+from haptos.config import IMAGE_EXTENSIONS
 
 
 class VideoSource:
