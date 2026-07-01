@@ -33,7 +33,12 @@ python main.py --source path/to/video.mp4
 
 Press `q` to quit the display window. `Ctrl+C` exits cleanly with code 130.
 
-There are no automated tests yet. Verification is done manually per the README testing plan.
+```bash
+# Run all tests (no venv needed — tests cover pure-Python logic only)
+pip install pytest            # one-time, or: pip install -r requirements-dev.txt
+pytest tests/                 # all tests
+pytest tests/cv/test_postprocess.py -v   # single file, verbose
+```
 
 ## Architecture
 
