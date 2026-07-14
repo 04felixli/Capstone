@@ -2,7 +2,7 @@
 
 from pathlib import Path
 import re
-from typing import Optional, Tuple, Union
+from typing import Any, Optional, Tuple
 
 import cv2
 
@@ -72,7 +72,7 @@ class VideoSource:
     def is_image(self) -> bool:
         return self._is_image
 
-    def read(self) -> Tuple[bool, Optional[Union[cv2.Mat, object]]]:
+    def read(self) -> Tuple[bool, Optional[Any]]:
         """Return (success, frame). success becomes False when input is done."""
 
         if self._is_image:
