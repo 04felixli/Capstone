@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import time
 
 import cv2
 
@@ -37,6 +38,12 @@ def parse_args() -> argparse.Namespace:
         help="Object detector backend",
     )
     parser.add_argument("--conf", type=float, default=DEFAULT_CONFIDENCE, help="Confidence threshold")
+    parser.add_argument(
+        "--fps",
+        type=float,
+        default=0.0,
+        help="Optional maximum processing FPS. Use 1 for low-load Pi testing; 0 runs as fast as possible.",
+    )
     parser.add_argument("--show", action="store_true", help="Display annotated frames")
     parser.add_argument("--save-log", help="Optional path for JSONL frame results")
     parser.add_argument(
@@ -73,7 +80,10 @@ def parse_args() -> argparse.Namespace:
         default=10,
         help="Number of recent filtered LiDAR frames to retain",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.fps < 0:
+        parser.error("--fps must be 0 or greater")
+    return args
 
 
 def main() -> int:
@@ -103,7 +113,9 @@ def main() -> int:
         lidar_buffer = LidarFrameBuffer(args.lidar_buffer_size) if lidar_reader is not None else None
 
         frame_index = 0
+        frame_interval_s = 1.0 / args.fps if args.fps > 0 else 0.0
         while True:
+            loop_started_at = time.monotonic()
             ok, frame = source.read()
             if not ok or frame is None:
                 break
@@ -143,6 +155,12 @@ def main() -> int:
 
             if source.is_image:
                 break
+
+            if frame_interval_s > 0:
+                elapsed_s = time.monotonic() - loop_started_at
+                sleep_s = frame_interval_s - elapsed_s
+                if sleep_s > 0:
+                    time.sleep(sleep_s)
 
         return 0
 
