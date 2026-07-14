@@ -7,8 +7,11 @@ import cv2
 
 from haptos.cv.camera import VideoSource
 from haptos.config import (
+    DEFAULT_DETECTOR_BACKEND,
     DEFAULT_CONFIDENCE,
     DEFAULT_MODEL,
+    DETECTOR_BACKEND_NCNN,
+    DETECTOR_BACKEND_ULTRALYTICS,
     LIDAR_DEFAULT_BAUDRATE,
     LIDAR_DEFAULT_MIN_SAMPLES,
     LIDAR_DEFAULT_SCAN_TIMEOUT_S,
@@ -27,6 +30,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Haptos laptop-testable CV module")
     parser.add_argument("--source", required=True, help="'webcam' or path to a video/image file")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="YOLO model path/name")
+    parser.add_argument(
+        "--backend",
+        choices=[DETECTOR_BACKEND_ULTRALYTICS, DETECTOR_BACKEND_NCNN],
+        default=DEFAULT_DETECTOR_BACKEND,
+        help="Object detector backend",
+    )
     parser.add_argument("--conf", type=float, default=DEFAULT_CONFIDENCE, help="Confidence threshold")
     parser.add_argument("--show", action="store_true", help="Display annotated frames")
     parser.add_argument("--save-log", help="Optional path for JSONL frame results")
@@ -75,13 +84,13 @@ def main() -> int:
     try:
         source = VideoSource(args.source)
         try:
-            from haptos.cv.detector import YoloDetector
+            from haptos.cv.detector import create_detector
         except ModuleNotFoundError as exc:
             if exc.name == "ultralytics":
                 raise RuntimeError("Ultralytics is not installed. Run: pip install -r requirements.txt") from exc
             raise
 
-        detector = YoloDetector(args.model, args.conf)
+        detector = create_detector(args.backend, args.model, args.conf)
         fps_counter = FPSCounter()
         logger = JsonlLogger(args.save_log) if args.save_log else None
         lidar_reader = create_lidar_reader(
