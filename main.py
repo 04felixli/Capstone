@@ -7,7 +7,7 @@ import time
 import cv2
 
 from haptos.cv.camera import VideoSource
-from haptos.cv.stereo import StereoDepthEstimator
+from haptos.cv.stereo import StereoDepthEstimator, attach_depth_to_detections
 from haptos.config import (
     DEFAULT_DETECTOR_BACKEND,
     DEFAULT_CONFIDENCE,
@@ -171,17 +171,21 @@ def main() -> int:
             if not ok or frame is None:
                 break
 
+            stereo_depth_frame = None
             stereo_depth_summary = None
             if stereo_right_source is not None and stereo_estimator is not None:
                 right_ok, right_frame = stereo_right_source.read()
                 if not right_ok or right_frame is None:
                     break
-                stereo_depth_summary = stereo_estimator.estimate(frame, right_frame)
+                stereo_depth_frame = stereo_estimator.estimate_frame(frame, right_frame)
+                stereo_depth_summary = stereo_depth_frame.summary
 
             frame_index += 1
             raw_detections = detector.detect(frame)
             frame_height, frame_width = frame.shape[:2]
             detections = filter_and_enrich_detections(raw_detections, frame_width, args.conf)
+            if stereo_depth_frame is not None:
+                detections = attach_depth_to_detections(detections, stereo_depth_frame.depth_m)
             command = generate_navigation_hint(detections)
             lidar_summary = None
 

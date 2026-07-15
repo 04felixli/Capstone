@@ -4,7 +4,8 @@ import unittest
 
 import numpy as np
 
-from haptos.cv.stereo import summarize_disparity
+from haptos.cv.stereo import attach_depth_to_detections, disparity_to_depth, summarize_disparity
+from haptos.types import Detection
 
 
 class StereoDepthSummaryTests(unittest.TestCase):
@@ -36,6 +37,43 @@ class StereoDepthSummaryTests(unittest.TestCase):
 
         self.assertEqual(summary.fault_state, "no_valid_disparity")
         self.assertEqual(summary.valid_pixel_count, 0)
+
+    def test_disparity_to_depth_requires_calibration(self):
+        disparity = np.array([[10.0]], dtype=np.float32)
+
+        self.assertIsNone(disparity_to_depth(disparity, baseline_m=None, focal_px=None))
+
+    def test_attach_depth_to_detections_uses_bbox_median_depth(self):
+        depth = np.array(
+            [
+                [10.0, 10.0, 10.0, 10.0],
+                [10.0, 1.0, 2.0, 10.0],
+                [10.0, 3.0, 4.0, 10.0],
+                [10.0, 10.0, 10.0, 10.0],
+            ],
+            dtype=np.float32,
+        )
+        detections = [
+            Detection(
+                class_name="person",
+                confidence=0.9,
+                bbox=(1, 1, 3, 3),
+                region="CENTER",
+                is_obstacle=True,
+            )
+        ]
+
+        enriched = attach_depth_to_detections(detections, depth)
+
+        self.assertEqual(len(enriched), 1)
+        self.assertAlmostEqual(enriched[0].median_depth_m, 2.5)
+        self.assertEqual(enriched[0].depth_pixel_count, 4)
+        self.assertEqual(enriched[0].class_name, "person")
+
+    def test_attach_depth_to_detections_leaves_detections_when_depth_missing(self):
+        detections = [Detection(class_name="person", confidence=0.9, bbox=(0, 0, 1, 1))]
+
+        self.assertIs(attach_depth_to_detections(detections, None), detections)
 
 
 if __name__ == "__main__":

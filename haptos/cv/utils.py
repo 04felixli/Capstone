@@ -80,7 +80,9 @@ def draw_detections(frame, detections: Iterable[Detection]) -> None:
     for detection in detections:
         x1, y1, x2, y2 = detection.bbox
         color = (0, 0, 255) if detection.is_obstacle else (0, 180, 0)
-        label = f"{detection.class_name} {detection.region} {detection.confidence:.2f}"
+        depth = _format_optional_distance(detection.median_depth_m)
+        depth_label = f" {depth}" if detection.median_depth_m is not None else ""
+        label = f"{detection.class_name} {detection.region} {detection.confidence:.2f}{depth_label}"
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(
@@ -116,7 +118,7 @@ def draw_overlay(frame, result: FrameResult) -> None:
 def format_console_result(result: FrameResult) -> str:
     if result.detections:
         detections = ", ".join(
-            f"{d.class_name}:{d.region.lower()}:{d.confidence:.2f}"
+            _format_detection(d)
             for d in result.detections
         )
     else:
@@ -154,3 +156,10 @@ def _format_optional_number(value: Optional[float]) -> str:
     if value is None:
         return "n/a"
     return f"{value:.2f}"
+
+
+def _format_detection(detection: Detection) -> str:
+    result = f"{detection.class_name}:{detection.region.lower()}:{detection.confidence:.2f}"
+    if detection.median_depth_m is not None:
+        result += f":{_format_optional_distance(detection.median_depth_m)}"
+    return result

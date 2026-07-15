@@ -21,6 +21,8 @@ class Detection:
     bbox: BBox
     region: Optional[str] = None
     is_obstacle: bool = False
+    median_depth_m: Optional[float] = None
+    depth_pixel_count: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
