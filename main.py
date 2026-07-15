@@ -7,6 +7,7 @@ import time
 import cv2
 
 from haptos.cv.camera import VideoSource
+from haptos.cv.stereo import StereoDepthEstimator
 from haptos.config import (
     DEFAULT_DETECTOR_BACKEND,
     DEFAULT_CONFIDENCE,
@@ -80,9 +81,47 @@ def parse_args() -> argparse.Namespace:
         default=10,
         help="Number of recent filtered LiDAR frames to retain",
     )
+    parser.add_argument(
+        "--stereo-depth",
+        action="store_true",
+        help="Enable stereo disparity/depth estimation using a second camera source",
+    )
+    parser.add_argument(
+        "--stereo-left-source",
+        help="Left camera source for stereo depth. Defaults to --source.",
+    )
+    parser.add_argument(
+        "--stereo-right-source",
+        default="picamera1",
+        help="Right camera source for stereo depth",
+    )
+    parser.add_argument(
+        "--stereo-num-disparities",
+        type=int,
+        default=64,
+        help="Stereo matcher disparity range. Must be a positive multiple of 16.",
+    )
+    parser.add_argument(
+        "--stereo-block-size",
+        type=int,
+        default=5,
+        help="Stereo matcher block size. Must be an odd integer >= 3.",
+    )
+    parser.add_argument(
+        "--stereo-baseline-m",
+        type=float,
+        help="Optional distance between camera centers in meters. Requires --stereo-focal-px.",
+    )
+    parser.add_argument(
+        "--stereo-focal-px",
+        type=float,
+        help="Optional focal length in pixels. Requires --stereo-baseline-m.",
+    )
     args = parser.parse_args()
     if args.fps < 0:
         parser.error("--fps must be 0 or greater")
+    if args.stereo_depth and args.stereo_left_source is None:
+        args.stereo_left_source = args.source
     return args
 
 
@@ -90,9 +129,21 @@ def main() -> int:
     args = parse_args()
 
     source = None
+    stereo_right_source = None
     logger = None
     try:
-        source = VideoSource(args.source)
+        source_name = args.stereo_left_source if args.stereo_depth else args.source
+        source = VideoSource(source_name)
+        stereo_estimator = None
+        if args.stereo_depth:
+            stereo_right_source = VideoSource(args.stereo_right_source)
+            stereo_estimator = StereoDepthEstimator(
+                num_disparities=args.stereo_num_disparities,
+                block_size=args.stereo_block_size,
+                baseline_m=args.stereo_baseline_m,
+                focal_px=args.stereo_focal_px,
+            )
+
         try:
             from haptos.cv.detector import create_detector
         except ModuleNotFoundError as exc:
@@ -120,6 +171,13 @@ def main() -> int:
             if not ok or frame is None:
                 break
 
+            stereo_depth_summary = None
+            if stereo_right_source is not None and stereo_estimator is not None:
+                right_ok, right_frame = stereo_right_source.read()
+                if not right_ok or right_frame is None:
+                    break
+                stereo_depth_summary = stereo_estimator.estimate(frame, right_frame)
+
             frame_index += 1
             raw_detections = detector.detect(frame)
             frame_height, frame_width = frame.shape[:2]
@@ -141,6 +199,7 @@ def main() -> int:
                 detections=detections,
                 fps=fps,
                 lidar_summary=lidar_summary,
+                stereo_depth_summary=stereo_depth_summary,
             )
 
             print(format_console_result(result))
@@ -173,6 +232,8 @@ def main() -> int:
     finally:
         if source is not None:
             source.release()
+        if stereo_right_source is not None:
+            stereo_right_source.release()
         if logger is not None:
             logger.close()
         if "lidar_reader" in locals() and lidar_reader is not None:

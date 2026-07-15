@@ -52,6 +52,21 @@ class LidarFrameSummary:
 
 
 @dataclass(frozen=True)
+class StereoDepthSummary:
+    """Small JSON-safe summary of one stereo disparity/depth estimate."""
+
+    fault_state: str
+    valid_pixel_count: int
+    median_disparity_px: Optional[float] = None
+    nearest_depth_m: Optional[float] = None
+    median_depth_m: Optional[float] = None
+    farthest_depth_m: Optional[float] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class FilteredLidarFrame:
     """Cleaned LiDAR frame ready for projection or sensor fusion."""
 
@@ -91,6 +106,7 @@ class FrameResult:
     detections: List[Detection]
     fps: float
     lidar_summary: Optional[LidarFrameSummary] = None
+    stereo_depth_summary: Optional[StereoDepthSummary] = None
 
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {
@@ -101,4 +117,6 @@ class FrameResult:
         data["detections"] = [d.to_dict() for d in self.detections]
         if self.lidar_summary is not None:
             data["lidar"] = self.lidar_summary.to_dict()
+        if self.stereo_depth_summary is not None:
+            data["stereo_depth"] = self.stereo_depth_summary.to_dict()
         return data

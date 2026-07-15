@@ -106,6 +106,12 @@ def draw_overlay(frame, result: FrameResult) -> None:
         lidar_status = f"lidar={lidar.fault_state} points={lidar.point_count} nearest={nearest}"
         cv2.putText(frame, lidar_status, (10, frame.shape[0] - 46), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 0), 2)
 
+    if result.stereo_depth_summary is not None:
+        stereo = result.stereo_depth_summary
+        depth = _format_optional_distance(stereo.median_depth_m)
+        stereo_status = f"stereo={stereo.fault_state} pixels={stereo.valid_pixel_count} median={depth}"
+        cv2.putText(frame, stereo_status, (10, frame.shape[0] - 76), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 0), 2)
+
 
 def format_console_result(result: FrameResult) -> str:
     if result.detections:
@@ -125,10 +131,26 @@ def format_console_result(result: FrameResult) -> str:
             f"nearest={_format_optional_distance(summary.nearest_distance_m)}"
         )
 
-    return f"Frame {result.frame_index} | command={result.command} | detections={detections}{lidar}"
+    stereo_depth = ""
+    if result.stereo_depth_summary is not None:
+        summary = result.stereo_depth_summary
+        stereo_depth = (
+            f" | stereo={summary.fault_state}:"
+            f"pixels={summary.valid_pixel_count}:"
+            f"median_disp={_format_optional_number(summary.median_disparity_px)}:"
+            f"median_depth={_format_optional_distance(summary.median_depth_m)}"
+        )
+
+    return f"Frame {result.frame_index} | command={result.command} | detections={detections}{lidar}{stereo_depth}"
 
 
 def _format_optional_distance(distance_m: Optional[float]) -> str:
     if distance_m is None:
         return "n/a"
     return f"{distance_m:.2f}m"
+
+
+def _format_optional_number(value: Optional[float]) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.2f}"
