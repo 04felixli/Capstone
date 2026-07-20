@@ -1,10 +1,13 @@
 """Tests for stereo disparity/depth helpers."""
 
 import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
 
 import numpy as np
 
 from haptos.cv.stereo import attach_depth_to_detections, disparity_to_depth, summarize_disparity
+from haptos.cv.stereo_calibration import StereoCalibration, find_image_pairs
 from haptos.types import Detection
 
 
@@ -74,6 +77,72 @@ class StereoDepthSummaryTests(unittest.TestCase):
         detections = [Detection(class_name="person", confidence=0.9, bbox=(0, 0, 1, 1))]
 
         self.assertIs(attach_depth_to_detections(detections, None), detections)
+
+    def test_stereo_calibration_round_trips_to_npz(self):
+        calibration = _make_test_calibration()
+
+        with TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "stereo_calibration.npz"
+            calibration.save(path)
+            loaded = StereoCalibration.load(path)
+
+        self.assertEqual(loaded.image_size, (4, 3))
+        self.assertAlmostEqual(loaded.baseline_m, 0.06)
+        self.assertAlmostEqual(loaded.focal_px, 100.0)
+        self.assertAlmostEqual(loaded.reprojection_error, 0.25)
+
+    def test_find_image_pairs_matches_left_and_right_files(self):
+        with TemporaryDirectory() as tmp_dir:
+            directory = Path(tmp_dir)
+            (directory / "left_000.jpg").touch()
+            (directory / "right_000.jpg").touch()
+            (directory / "left_001.jpg").touch()
+
+            pairs = find_image_pairs(directory)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0][0].name, "left_000.jpg")
+        self.assertEqual(pairs[0][1].name, "right_000.jpg")
+
+
+def _make_test_calibration() -> StereoCalibration:
+    camera_matrix = np.array(
+        [
+            [100.0, 0.0, 2.0],
+            [0.0, 100.0, 1.5],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    dist_coeffs = np.zeros((5, 1), dtype=np.float64)
+    identity = np.eye(3, dtype=np.float64)
+    projection_left = np.array(
+        [
+            [100.0, 0.0, 2.0, 0.0],
+            [0.0, 100.0, 1.5, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ],
+        dtype=np.float64,
+    )
+    projection_right = projection_left.copy()
+    projection_right[0, 3] = -6.0
+    return StereoCalibration(
+        image_size=(4, 3),
+        camera_matrix_left=camera_matrix,
+        dist_coeffs_left=dist_coeffs,
+        camera_matrix_right=camera_matrix,
+        dist_coeffs_right=dist_coeffs,
+        rotation=identity,
+        translation=np.array([[-0.06], [0.0], [0.0]], dtype=np.float64),
+        essential_matrix=identity,
+        fundamental_matrix=identity,
+        rectification_left=identity,
+        rectification_right=identity,
+        projection_left=projection_left,
+        projection_right=projection_right,
+        disparity_to_depth_map=np.eye(4, dtype=np.float64),
+        reprojection_error=0.25,
+    )
 
 
 if __name__ == "__main__":

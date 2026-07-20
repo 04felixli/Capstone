@@ -27,12 +27,18 @@ logs/
 output/
 outputs/
 runs/
+calibration/images/
+calibration/*.npz
 
 # Downloaded model weights and ML artifacts
 *.pt
 *.pth
 *.onnx
 *.engine
+*.bin
+*.param
+*_ncnn_model/
+models/
 
 # Local test media and captures
 captures/

@@ -117,6 +117,10 @@ def parse_args() -> argparse.Namespace:
         type=float,
         help="Optional focal length in pixels. Requires --stereo-baseline-m.",
     )
+    parser.add_argument(
+        "--stereo-calibration",
+        help="Optional .npz calibration file from scripts/calibrate_stereo.py. Overrides rough baseline/focal values.",
+    )
     args = parser.parse_args()
     if args.fps < 0:
         parser.error("--fps must be 0 or greater")
@@ -142,6 +146,7 @@ def main() -> int:
                 block_size=args.stereo_block_size,
                 baseline_m=args.stereo_baseline_m,
                 focal_px=args.stereo_focal_px,
+                calibration_path=args.stereo_calibration,
             )
 
         try:

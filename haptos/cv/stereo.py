@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 
 from haptos.types import Detection, StereoDepthSummary
+from haptos.cv.stereo_calibration import StereoCalibration
 
 
 @dataclass(frozen=True)
@@ -27,11 +28,17 @@ class StereoDepthEstimator:
         block_size: int = 5,
         baseline_m: Optional[float] = None,
         focal_px: Optional[float] = None,
+        calibration_path: Optional[str] = None,
     ):
         if num_disparities <= 0 or num_disparities % 16 != 0:
             raise ValueError("--stereo-num-disparities must be a positive multiple of 16")
         if block_size < 3 or block_size % 2 == 0:
             raise ValueError("--stereo-block-size must be an odd integer >= 3")
+        self.calibration = StereoCalibration.load(calibration_path) if calibration_path else None
+        if self.calibration is not None:
+            baseline_m = self.calibration.baseline_m
+            focal_px = self.calibration.focal_px
+
         if (baseline_m is None) != (focal_px is None):
             raise ValueError("--stereo-baseline-m and --stereo-focal-px must be provided together")
         if baseline_m is not None and baseline_m <= 0:
@@ -61,6 +68,9 @@ class StereoDepthEstimator:
 
     def estimate_frame(self, left_frame, right_frame) -> StereoDepthFrame:
         """Return disparity, optional metric depth, and a compact summary."""
+
+        if self.calibration is not None:
+            left_frame, right_frame = self.calibration.rectify(left_frame, right_frame)
 
         left_gray = cv2.cvtColor(left_frame, cv2.COLOR_BGR2GRAY)
         right_gray = cv2.cvtColor(right_frame, cv2.COLOR_BGR2GRAY)
