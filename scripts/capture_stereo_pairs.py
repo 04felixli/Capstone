@@ -20,6 +20,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pairs", type=int, default=25, help="Number of pairs to capture")
     parser.add_argument("--interval", type=float, default=1.5, help="Seconds between captures")
     parser.add_argument("--warmup", type=float, default=2.0, help="Seconds to let cameras settle before capture")
+    parser.add_argument("--pattern-cols", type=int, help="Checkerboard inner corner columns for validation")
+    parser.add_argument("--pattern-rows", type=int, help="Checkerboard inner corner rows for validation")
     parser.add_argument(
         "--manual",
         action="store_true",
@@ -32,6 +34,10 @@ def parse_args() -> argparse.Namespace:
         parser.error("--interval must be 0 or greater")
     if args.warmup < 0:
         parser.error("--warmup must be 0 or greater")
+    if (args.pattern_cols is None) != (args.pattern_rows is None):
+        parser.error("--pattern-cols and --pattern-rows must be provided together")
+    if args.pattern_cols is not None and (args.pattern_cols <= 2 or args.pattern_rows <= 2):
+        parser.error("checkerboard pattern dimensions must both be greater than 2")
     return args
 
 
@@ -62,10 +68,13 @@ def main() -> int:
             left_path = output_dir / f"left_{index:03d}.jpg"
             right_path = output_dir / f"right_{index:03d}.jpg"
             preview_path = output_dir / f"preview_{index:03d}.jpg"
+            validation = validate_checkerboard_pair(left_frame, right_frame, args.pattern_cols, args.pattern_rows)
             cv2.imwrite(str(left_path), left_frame)
             cv2.imwrite(str(right_path), right_frame)
-            cv2.imwrite(str(preview_path), make_side_by_side_preview(left_frame, right_frame))
+            cv2.imwrite(str(preview_path), make_side_by_side_preview(left_frame, right_frame, validation))
             print(f"Saved {left_path}, {right_path}, and {preview_path}")
+            if validation is not None:
+                print(format_validation_result(validation))
 
         return 0
     finally:
@@ -73,7 +82,7 @@ def main() -> int:
         right_source.release()
 
 
-def make_side_by_side_preview(left_frame, right_frame):
+def make_side_by_side_preview(left_frame, right_frame, validation=None):
     """Create a side-by-side image for quick calibration-pair inspection."""
 
     if left_frame.shape[:2] != right_frame.shape[:2]:
@@ -83,7 +92,48 @@ def make_side_by_side_preview(left_frame, right_frame):
     right_preview = right_frame.copy()
     cv2.putText(left_preview, "LEFT", (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
     cv2.putText(right_preview, "RIGHT", (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
-    return cv2.hconcat([left_preview, right_preview])
+    preview = cv2.hconcat([left_preview, right_preview])
+
+    if validation is not None:
+        label = "VALID" if validation["valid"] else "INVALID"
+        color = (0, 220, 0) if validation["valid"] else (0, 0, 255)
+        cv2.putText(preview, label, (12, preview.shape[0] - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+
+    return preview
+
+
+def validate_checkerboard_pair(left_frame, right_frame, pattern_cols, pattern_rows):
+    """Return checkerboard detection status for a stereo pair, or None if disabled."""
+
+    if pattern_cols is None or pattern_rows is None:
+        return None
+
+    pattern_size = (pattern_cols, pattern_rows)
+    left_found = detect_checkerboard(left_frame, pattern_size)
+    right_found = detect_checkerboard(right_frame, pattern_size)
+    return {
+        "left_found": left_found,
+        "right_found": right_found,
+        "valid": left_found and right_found,
+    }
+
+
+def detect_checkerboard(frame, pattern_size):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    found, _ = cv2.findChessboardCorners(gray, pattern_size)
+    return bool(found)
+
+
+def format_validation_result(validation):
+    if validation["valid"]:
+        return "Checkerboard: VALID in both cameras"
+    missing = []
+    if not validation["left_found"]:
+        missing.append("left")
+    if not validation["right_found"]:
+        missing.append("right")
+    camera_label = "camera" if len(missing) == 1 else "cameras"
+    return f"Checkerboard: INVALID ({', '.join(missing)} {camera_label} did not detect the full pattern)"
 
 
 if __name__ == "__main__":
