@@ -91,16 +91,19 @@ def attach_depth_to_detections(
     detections: list[Detection],
     depth_m: Optional[np.ndarray],
     min_valid_depth_m: float = 0.05,
+    bbox_scale: float = 0.6,
 ) -> list[Detection]:
-    """Attach median metric depth from each detection bounding box."""
+    """Attach median metric depth from the center area of each detection box."""
 
     if depth_m is None:
         return detections
+    if bbox_scale <= 0.0 or bbox_scale > 1.0:
+        raise ValueError("bbox_scale must be greater than 0 and less than or equal to 1")
 
     enriched: list[Detection] = []
     height, width = depth_m.shape[:2]
     for detection in detections:
-        x1, y1, x2, y2 = detection.bbox
+        x1, y1, x2, y2 = _scale_bbox_around_center(detection.bbox, bbox_scale)
         x1 = max(0, min(width, x1))
         x2 = max(0, min(width, x2))
         y1 = max(0, min(height, y1))
@@ -125,6 +128,20 @@ def attach_depth_to_detections(
         )
 
     return enriched
+
+
+def _scale_bbox_around_center(bbox, scale: float):
+    x1, y1, x2, y2 = bbox
+    center_x = (x1 + x2) / 2.0
+    center_y = (y1 + y2) / 2.0
+    half_width = (x2 - x1) * scale / 2.0
+    half_height = (y2 - y1) * scale / 2.0
+    return (
+        int(round(center_x - half_width)),
+        int(round(center_y - half_height)),
+        int(round(center_x + half_width)),
+        int(round(center_y + half_height)),
+    )
 
 
 def disparity_to_depth(

@@ -121,9 +121,17 @@ def parse_args() -> argparse.Namespace:
         "--stereo-calibration",
         help="Optional .npz calibration file from scripts/calibrate_stereo.py. Overrides rough baseline/focal values.",
     )
+    parser.add_argument(
+        "--depth-bbox-scale",
+        type=float,
+        default=0.6,
+        help="Center fraction of each detection bbox used for object depth. 1.0 uses the full box.",
+    )
     args = parser.parse_args()
     if args.fps < 0:
         parser.error("--fps must be 0 or greater")
+    if args.depth_bbox_scale <= 0.0 or args.depth_bbox_scale > 1.0:
+        parser.error("--depth-bbox-scale must be greater than 0 and less than or equal to 1")
     if args.stereo_depth and args.stereo_left_source is None:
         args.stereo_left_source = args.source
     return args
@@ -199,7 +207,11 @@ def main() -> int:
             _, frame_width = frame.shape[:2]
             detections = filter_and_enrich_detections(raw_detections, frame_width, args.conf)
             if stereo_depth_frame is not None:
-                detections = attach_depth_to_detections(detections, stereo_depth_frame.depth_m)
+                detections = attach_depth_to_detections(
+                    detections,
+                    stereo_depth_frame.depth_m,
+                    bbox_scale=args.depth_bbox_scale,
+                )
             command = generate_navigation_hint(detections)
             lidar_summary = None
 

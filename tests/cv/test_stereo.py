@@ -66,12 +66,37 @@ class StereoDepthSummaryTests(unittest.TestCase):
             )
         ]
 
-        enriched = attach_depth_to_detections(detections, depth)
+        enriched = attach_depth_to_detections(detections, depth, bbox_scale=1.0)
 
         self.assertEqual(len(enriched), 1)
         self.assertAlmostEqual(enriched[0].median_depth_m, 2.5)
         self.assertEqual(enriched[0].depth_pixel_count, 4)
         self.assertEqual(enriched[0].class_name, "person")
+
+    def test_attach_depth_to_detections_can_use_center_bbox_region(self):
+        depth = np.full((10, 10), 10.0, dtype=np.float32)
+        depth[4:6, 4:6] = 1.0
+        detections = [
+            Detection(
+                class_name="person",
+                confidence=0.9,
+                bbox=(0, 0, 10, 10),
+                region="CENTER",
+                is_obstacle=True,
+            )
+        ]
+
+        enriched = attach_depth_to_detections(detections, depth, bbox_scale=0.2)
+
+        self.assertAlmostEqual(enriched[0].median_depth_m, 1.0)
+        self.assertEqual(enriched[0].depth_pixel_count, 4)
+
+    def test_attach_depth_to_detections_rejects_invalid_bbox_scale(self):
+        detections = [Detection(class_name="person", confidence=0.9, bbox=(0, 0, 1, 1))]
+        depth = np.ones((2, 2), dtype=np.float32)
+
+        with self.assertRaises(ValueError):
+            attach_depth_to_detections(detections, depth, bbox_scale=0.0)
 
     def test_attach_depth_to_detections_leaves_detections_when_depth_missing(self):
         detections = [Detection(class_name="person", confidence=0.9, bbox=(0, 0, 1, 1))]
