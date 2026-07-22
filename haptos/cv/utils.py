@@ -124,26 +124,12 @@ def format_console_result(result: FrameResult) -> str:
     else:
         detections = "none"
 
-    lidar = ""
-    if result.lidar_summary is not None:
-        summary = result.lidar_summary
-        lidar = (
-            f" | lidar={summary.fault_state}:"
-            f"points={summary.point_count}:"
-            f"nearest={_format_optional_distance(summary.nearest_distance_m)}"
-        )
-
-    stereo_depth = ""
-    if result.stereo_depth_summary is not None:
-        summary = result.stereo_depth_summary
-        stereo_depth = (
-            f" | stereo={summary.fault_state}:"
-            f"pixels={summary.valid_pixel_count}:"
-            f"median_disp={_format_optional_number(summary.median_disparity_px)}:"
-            f"median_depth={_format_optional_distance(summary.median_depth_m)}"
-        )
-
-    return f"Frame {result.frame_index} | command={result.command} | detections={detections}{lidar}{stereo_depth}"
+    return (
+        f"Frame {result.frame_index} | "
+        f"detections={detections} | "
+        f"cv_latency={_format_optional_latency(result.cv_latency_ms)} | "
+        f"depth_latency={_format_optional_latency(result.depth_latency_ms)}"
+    )
 
 
 def _format_optional_distance(distance_m: Optional[float]) -> str:
@@ -156,6 +142,12 @@ def _format_optional_number(value: Optional[float]) -> str:
     if value is None:
         return "n/a"
     return f"{value:.2f}"
+
+
+def _format_optional_latency(latency_ms: Optional[float]) -> str:
+    if latency_ms is None:
+        return "n/a"
+    return f"{latency_ms:.1f}ms"
 
 
 def _format_detection(detection: Detection) -> str:

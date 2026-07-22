@@ -107,6 +107,8 @@ class FrameResult:
     command: str
     detections: List[Detection]
     fps: float
+    cv_latency_ms: Optional[float] = None
+    depth_latency_ms: Optional[float] = None
     lidar_summary: Optional[LidarFrameSummary] = None
     stereo_depth_summary: Optional[StereoDepthSummary] = None
 
@@ -116,6 +118,10 @@ class FrameResult:
             "command": self.command,
             "fps": self.fps,
         }
+        if self.cv_latency_ms is not None:
+            data["cv_latency_ms"] = self.cv_latency_ms
+        if self.depth_latency_ms is not None:
+            data["depth_latency_ms"] = self.depth_latency_ms
         data["detections"] = [d.to_dict() for d in self.detections]
         if self.lidar_summary is not None:
             data["lidar"] = self.lidar_summary.to_dict()

@@ -178,16 +178,21 @@ def main() -> int:
 
             stereo_depth_frame = None
             stereo_depth_summary = None
+            depth_latency_ms = None
             if stereo_right_source is not None and stereo_estimator is not None:
                 right_ok, right_frame = stereo_right_source.read()
                 if not right_ok or right_frame is None:
                     break
+                depth_started_at = time.perf_counter()
                 stereo_depth_frame = stereo_estimator.estimate_frame(frame, right_frame)
+                depth_latency_ms = (time.perf_counter() - depth_started_at) * 1000.0
                 stereo_depth_summary = stereo_depth_frame.summary
 
             frame_index += 1
+            cv_started_at = time.perf_counter()
             raw_detections = detector.detect(frame)
-            frame_height, frame_width = frame.shape[:2]
+            cv_latency_ms = (time.perf_counter() - cv_started_at) * 1000.0
+            _, frame_width = frame.shape[:2]
             detections = filter_and_enrich_detections(raw_detections, frame_width, args.conf)
             if stereo_depth_frame is not None:
                 detections = attach_depth_to_detections(detections, stereo_depth_frame.depth_m)
@@ -207,6 +212,8 @@ def main() -> int:
                 command=command,
                 detections=detections,
                 fps=fps,
+                cv_latency_ms=cv_latency_ms,
+                depth_latency_ms=depth_latency_ms,
                 lidar_summary=lidar_summary,
                 stereo_depth_summary=stereo_depth_summary,
             )
