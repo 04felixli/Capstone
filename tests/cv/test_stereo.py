@@ -7,7 +7,12 @@ from pathlib import Path
 import numpy as np
 
 from haptos.cv.stereo import attach_depth_to_detections, disparity_to_depth, summarize_disparity
-from haptos.cv.stereo_calibration import StereoCalibration, find_image_pairs
+from haptos.cv.stereo_calibration import (
+    UncalibratedStereoRectification,
+    StereoCalibration,
+    find_image_pairs,
+    load_stereo_rectification,
+)
 from haptos.types import Detection
 
 
@@ -109,12 +114,34 @@ class StereoDepthSummaryTests(unittest.TestCase):
         with TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "stereo_calibration.npz"
             calibration.save(path)
-            loaded = StereoCalibration.load(path)
+            loaded = load_stereo_rectification(path)
 
         self.assertEqual(loaded.image_size, (4, 3))
         self.assertAlmostEqual(loaded.baseline_m, 0.06)
         self.assertAlmostEqual(loaded.focal_px, 100.0)
         self.assertAlmostEqual(loaded.reprojection_error, 0.25)
+
+    def test_uncalibrated_rectification_round_trips_to_npz(self):
+        rectification = UncalibratedStereoRectification(
+            image_size=(4, 3),
+            homography_left=np.eye(3, dtype=np.float64),
+            homography_right=np.eye(3, dtype=np.float64),
+            fundamental_matrix=np.eye(3, dtype=np.float64),
+            inlier_count=120,
+            match_count=400,
+        )
+
+        with TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "uncalibrated_rectification.npz"
+            rectification.save(path)
+            loaded = load_stereo_rectification(path)
+
+        self.assertIsInstance(loaded, UncalibratedStereoRectification)
+        self.assertEqual(loaded.image_size, (4, 3))
+        self.assertIsNone(loaded.baseline_m)
+        self.assertIsNone(loaded.focal_px)
+        self.assertEqual(loaded.inlier_count, 120)
+        self.assertEqual(loaded.match_count, 400)
 
     def test_find_image_pairs_matches_left_and_right_files(self):
         with TemporaryDirectory() as tmp_dir:

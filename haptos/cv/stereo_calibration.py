@@ -7,6 +7,9 @@ from typing import Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
+RECTIFICATION_KIND_CHECKERBOARD = "checkerboard_calibration"
+RECTIFICATION_KIND_UNCALIBRATED = "uncalibrated_rectification"
+
 
 @dataclass(frozen=True)
 class StereoCalibration:
@@ -72,6 +75,7 @@ class StereoCalibration:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(
             output_path,
+            kind=np.array([RECTIFICATION_KIND_CHECKERBOARD]),
             image_size=np.array(self.image_size, dtype=np.int32),
             camera_matrix_left=self.camera_matrix_left,
             dist_coeffs_left=self.dist_coeffs_left,
@@ -124,6 +128,160 @@ class StereoCalibration:
         left_rectified = cv2.remap(left_frame, left_map_x, left_map_y, cv2.INTER_LINEAR)
         right_rectified = cv2.remap(right_frame, right_map_x, right_map_y, cv2.INTER_LINEAR)
         return left_rectified, right_rectified
+
+
+@dataclass(frozen=True)
+class UncalibratedStereoRectification:
+    """Saved rectification homographies estimated from scene feature matches."""
+
+    image_size: Tuple[int, int]
+    homography_left: np.ndarray
+    homography_right: np.ndarray
+    fundamental_matrix: np.ndarray
+    inlier_count: int
+    match_count: int
+
+    @property
+    def focal_px(self) -> Optional[float]:
+        return None
+
+    @property
+    def baseline_m(self) -> Optional[float]:
+        return None
+
+    def save(self, path: str | Path) -> None:
+        output_path = Path(path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(
+            output_path,
+            kind=np.array([RECTIFICATION_KIND_UNCALIBRATED]),
+            image_size=np.array(self.image_size, dtype=np.int32),
+            homography_left=self.homography_left,
+            homography_right=self.homography_right,
+            fundamental_matrix=self.fundamental_matrix,
+            inlier_count=np.array([self.inlier_count], dtype=np.int32),
+            match_count=np.array([self.match_count], dtype=np.int32),
+        )
+
+    @classmethod
+    def load(cls, path: str | Path) -> "UncalibratedStereoRectification":
+        data = np.load(Path(path))
+        return cls(
+            image_size=tuple(int(v) for v in data["image_size"]),
+            homography_left=data["homography_left"],
+            homography_right=data["homography_right"],
+            fundamental_matrix=data["fundamental_matrix"],
+            inlier_count=int(data["inlier_count"][0]),
+            match_count=int(data["match_count"][0]),
+        )
+
+    def rectify(self, left_frame, right_frame):
+        """Rectify a stereo frame pair with projective homographies."""
+
+        width, height = self.image_size
+        if left_frame.shape[1] != width or left_frame.shape[0] != height:
+            left_frame = cv2.resize(left_frame, self.image_size)
+        if right_frame.shape[1] != width or right_frame.shape[0] != height:
+            right_frame = cv2.resize(right_frame, self.image_size)
+
+        left_rectified = cv2.warpPerspective(left_frame, self.homography_left, self.image_size)
+        right_rectified = cv2.warpPerspective(right_frame, self.homography_right, self.image_size)
+        return left_rectified, right_rectified
+
+
+def load_stereo_rectification(path: str | Path):
+    """Load either full checkerboard calibration or uncalibrated rectification."""
+
+    data = np.load(Path(path))
+    kind = _npz_kind(data)
+    data.close()
+    if kind == RECTIFICATION_KIND_UNCALIBRATED:
+        return UncalibratedStereoRectification.load(path)
+    return StereoCalibration.load(path)
+
+
+def estimate_uncalibrated_rectification_from_images(
+    left_path: str | Path,
+    right_path: str | Path,
+    max_features: int = 4000,
+    keep_matches: int = 800,
+    min_inliers: int = 80,
+    ransac_reproj_threshold: float = 1.5,
+) -> UncalibratedStereoRectification:
+    """Estimate stereo rectification from ordinary scene feature matches."""
+
+    left_gray = _read_gray(Path(left_path))
+    right_gray = _read_gray(Path(right_path))
+    if left_gray.shape != right_gray.shape:
+        raise ValueError("Left and right images must have the same size")
+
+    orb = cv2.ORB_create(nfeatures=max_features)
+    left_keypoints, left_descriptors = orb.detectAndCompute(left_gray, None)
+    right_keypoints, right_descriptors = orb.detectAndCompute(right_gray, None)
+    if left_descriptors is None or right_descriptors is None:
+        raise ValueError("Could not find enough feature descriptors in both images")
+
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    matches = sorted(matcher.match(left_descriptors, right_descriptors), key=lambda match: match.distance)
+    matches = matches[:keep_matches]
+    if len(matches) < min_inliers:
+        raise ValueError(f"Need at least {min_inliers} feature matches; found {len(matches)}")
+
+    left_points = np.float32([left_keypoints[match.queryIdx].pt for match in matches])
+    right_points = np.float32([right_keypoints[match.trainIdx].pt for match in matches])
+    fundamental, inlier_mask = cv2.findFundamentalMat(
+        left_points,
+        right_points,
+        cv2.FM_RANSAC,
+        ransac_reproj_threshold,
+        0.99,
+    )
+    if fundamental is None or inlier_mask is None:
+        raise ValueError("Could not estimate a fundamental matrix")
+
+    inliers = inlier_mask.ravel().astype(bool)
+    inlier_count = int(np.count_nonzero(inliers))
+    if inlier_count < min_inliers:
+        raise ValueError(f"Need at least {min_inliers} inlier matches; found {inlier_count}")
+
+    image_size = (left_gray.shape[1], left_gray.shape[0])
+    ok, homography_left, homography_right = cv2.stereoRectifyUncalibrated(
+        left_points[inliers],
+        right_points[inliers],
+        fundamental,
+        image_size,
+    )
+    if not ok:
+        raise ValueError("OpenCV could not compute uncalibrated stereo rectification")
+
+    return UncalibratedStereoRectification(
+        image_size=image_size,
+        homography_left=homography_left,
+        homography_right=homography_right,
+        fundamental_matrix=fundamental,
+        inlier_count=inlier_count,
+        match_count=len(matches),
+    )
+
+
+def make_rectified_preview(rectification, left_path: str | Path, right_path: str | Path):
+    """Create a side-by-side rectified preview with horizontal guide lines."""
+
+    left = cv2.imread(str(left_path))
+    right = cv2.imread(str(right_path))
+    if left is None:
+        raise ValueError(f"Could not read image: {left_path}")
+    if right is None:
+        raise ValueError(f"Could not read image: {right_path}")
+
+    left_rectified, right_rectified = rectification.rectify(left, right)
+    preview = cv2.hconcat([left_rectified, right_rectified])
+    height, width = left_rectified.shape[:2]
+    for y in range(40, height, 40):
+        cv2.line(preview, (0, y), (width * 2, y), (0, 255, 255), 1)
+    cv2.putText(preview, "LEFT RECTIFIED", (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+    cv2.putText(preview, "RIGHT RECTIFIED", (width + 12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+    return preview
 
 
 def calibrate_stereo_from_images(
@@ -274,3 +432,12 @@ def _rectification_maps(camera_matrix, dist_coeffs, rectification, projection, i
         image_size,
         cv2.CV_32FC1,
     )
+
+
+def _npz_kind(data) -> str:
+    if "kind" not in data.files:
+        return RECTIFICATION_KIND_CHECKERBOARD
+    kind = data["kind"][0]
+    if isinstance(kind, bytes):
+        return kind.decode("utf-8")
+    return str(kind)
