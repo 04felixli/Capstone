@@ -174,6 +174,8 @@ def main() -> int:
             loop_started_at = time.monotonic()
             ok, frame = source.read()
             if not ok or frame is None:
+                if frame_index == 0:
+                    raise RuntimeError(f"No frames received from source '{source_name}'.")
                 break
 
             stereo_depth_frame = None
@@ -182,6 +184,8 @@ def main() -> int:
             if stereo_right_source is not None and stereo_estimator is not None:
                 right_ok, right_frame = stereo_right_source.read()
                 if not right_ok or right_frame is None:
+                    if frame_index == 0:
+                        raise RuntimeError(f"No frames received from stereo right source '{args.stereo_right_source}'.")
                     break
                 depth_started_at = time.perf_counter()
                 stereo_depth_frame = stereo_estimator.estimate_frame(frame, right_frame)
