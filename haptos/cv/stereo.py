@@ -19,6 +19,15 @@ class StereoDepthFrame:
     depth_m: Optional[np.ndarray] = None
 
 
+@dataclass(frozen=True)
+class DetectionDepthMeasurement:
+    """Depth measurement details for one detection bbox."""
+
+    sample_bbox: tuple[int, int, int, int]
+    median_depth_m: Optional[float]
+    valid_pixel_count: int
+
+
 class StereoDepthEstimator:
     """Compute a coarse stereo disparity/depth summary from left and right frames."""
 
@@ -101,17 +110,14 @@ def attach_depth_to_detections(
         raise ValueError("bbox_scale must be greater than 0 and less than or equal to 1")
 
     enriched: list[Detection] = []
-    height, width = depth_m.shape[:2]
     for detection in detections:
-        x1, y1, x2, y2 = _scale_bbox_around_center(detection.bbox, bbox_scale)
-        x1 = max(0, min(width, x1))
-        x2 = max(0, min(width, x2))
-        y1 = max(0, min(height, y1))
-        y2 = max(0, min(height, y2))
-
-        crop = depth_m[y1:y2, x1:x2]
-        valid_depth = crop[np.isfinite(crop) & (crop > min_valid_depth_m)]
-        if valid_depth.size == 0:
+        measurement = measure_detection_depth(
+            detection,
+            depth_m,
+            min_valid_depth_m=min_valid_depth_m,
+            bbox_scale=bbox_scale,
+        )
+        if measurement.median_depth_m is None:
             enriched.append(detection)
             continue
 
@@ -122,12 +128,46 @@ def attach_depth_to_detections(
                 bbox=detection.bbox,
                 region=detection.region,
                 is_obstacle=detection.is_obstacle,
-                median_depth_m=float(np.median(valid_depth)),
-                depth_pixel_count=int(valid_depth.size),
+                median_depth_m=measurement.median_depth_m,
+                depth_pixel_count=measurement.valid_pixel_count,
             )
         )
 
     return enriched
+
+
+def measure_detection_depth(
+    detection: Detection,
+    depth_m: np.ndarray,
+    min_valid_depth_m: float = 0.05,
+    bbox_scale: float = 0.6,
+) -> DetectionDepthMeasurement:
+    """Measure median depth inside the center area of one detection box."""
+
+    if bbox_scale <= 0.0 or bbox_scale > 1.0:
+        raise ValueError("bbox_scale must be greater than 0 and less than or equal to 1")
+
+    height, width = depth_m.shape[:2]
+    x1, y1, x2, y2 = _scale_bbox_around_center(detection.bbox, bbox_scale)
+    x1 = max(0, min(width, x1))
+    x2 = max(0, min(width, x2))
+    y1 = max(0, min(height, y1))
+    y2 = max(0, min(height, y2))
+
+    crop = depth_m[y1:y2, x1:x2]
+    valid_depth = crop[np.isfinite(crop) & (crop > min_valid_depth_m)]
+    if valid_depth.size == 0:
+        return DetectionDepthMeasurement(
+            sample_bbox=(x1, y1, x2, y2),
+            median_depth_m=None,
+            valid_pixel_count=0,
+        )
+
+    return DetectionDepthMeasurement(
+        sample_bbox=(x1, y1, x2, y2),
+        median_depth_m=float(np.median(valid_depth)),
+        valid_pixel_count=int(valid_depth.size),
+    )
 
 
 def _scale_bbox_around_center(bbox, scale: float):
