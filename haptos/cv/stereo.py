@@ -154,6 +154,46 @@ def measure_detection_depth(
     y1 = max(0, min(height, y1))
     y2 = max(0, min(height, y2))
 
+    return measure_depth_in_bbox(depth_m, (x1, y1, x2, y2), min_valid_depth_m=min_valid_depth_m)
+
+
+def measure_center_depth(
+    depth_m: np.ndarray,
+    box_size_px: int = 80,
+    min_valid_depth_m: float = 0.05,
+) -> DetectionDepthMeasurement:
+    """Measure median depth in a square centered in the depth image."""
+
+    if box_size_px <= 0:
+        raise ValueError("box_size_px must be positive")
+
+    height, width = depth_m.shape[:2]
+    center_x = width / 2.0
+    center_y = height / 2.0
+    half_size = box_size_px / 2.0
+    bbox = (
+        int(round(center_x - half_size)),
+        int(round(center_y - half_size)),
+        int(round(center_x + half_size)),
+        int(round(center_y + half_size)),
+    )
+    return measure_depth_in_bbox(depth_m, bbox, min_valid_depth_m=min_valid_depth_m)
+
+
+def measure_depth_in_bbox(
+    depth_m: np.ndarray,
+    bbox,
+    min_valid_depth_m: float = 0.05,
+) -> DetectionDepthMeasurement:
+    """Measure median depth inside a pixel bbox."""
+
+    height, width = depth_m.shape[:2]
+    x1, y1, x2, y2 = bbox
+    x1 = max(0, min(width, x1))
+    x2 = max(0, min(width, x2))
+    y1 = max(0, min(height, y1))
+    y2 = max(0, min(height, y2))
+
     crop = depth_m[y1:y2, x1:x2]
     valid_depth = crop[np.isfinite(crop) & (crop > min_valid_depth_m)]
     if valid_depth.size == 0:

@@ -6,7 +6,13 @@ from pathlib import Path
 
 import numpy as np
 
-from haptos.cv.stereo import attach_depth_to_detections, disparity_to_depth, measure_detection_depth, summarize_disparity
+from haptos.cv.stereo import (
+    attach_depth_to_detections,
+    disparity_to_depth,
+    measure_center_depth,
+    measure_detection_depth,
+    summarize_disparity,
+)
 from haptos.cv.stereo_calibration import (
     UncalibratedStereoRectification,
     StereoCalibration,
@@ -111,6 +117,15 @@ class StereoDepthSummaryTests(unittest.TestCase):
         self.assertEqual(measurement.sample_bbox, (2, 2, 8, 8))
         self.assertAlmostEqual(measurement.median_depth_m, 2.0)
         self.assertEqual(measurement.valid_pixel_count, 36)
+
+    def test_measure_center_depth_reports_center_sample_bbox(self):
+        depth = np.full((10, 10), 3.0, dtype=np.float32)
+
+        measurement = measure_center_depth(depth, box_size_px=4)
+
+        self.assertEqual(measurement.sample_bbox, (3, 3, 7, 7))
+        self.assertAlmostEqual(measurement.median_depth_m, 3.0)
+        self.assertEqual(measurement.valid_pixel_count, 16)
 
     def test_attach_depth_to_detections_rejects_invalid_bbox_scale(self):
         detections = [Detection(class_name="person", confidence=0.9, bbox=(0, 0, 1, 1))]
