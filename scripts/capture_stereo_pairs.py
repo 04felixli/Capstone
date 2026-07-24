@@ -9,7 +9,7 @@ import cv2
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from haptos.cv.camera import VideoSource
+from haptos.cv.camera import StereoVideoSource
 
 
 def parse_args() -> argparse.Namespace:
@@ -20,6 +20,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pairs", type=int, default=25, help="Number of pairs to capture")
     parser.add_argument("--interval", type=float, default=1.5, help="Seconds between captures")
     parser.add_argument("--warmup", type=float, default=2.0, help="Seconds to let cameras settle before capture")
+    parser.add_argument("--camera-fps", type=float, default=30.0, help="Fixed stereo camera capture FPS")
+    parser.add_argument("--max-skew-ms", type=float, default=8.0, help="Maximum accepted frame timestamp skew")
     parser.add_argument("--pattern-cols", type=int, help="Checkerboard inner corner columns for validation")
     parser.add_argument("--pattern-rows", type=int, help="Checkerboard inner corner rows for validation")
     parser.add_argument(
@@ -34,6 +36,10 @@ def parse_args() -> argparse.Namespace:
         parser.error("--interval must be 0 or greater")
     if args.warmup < 0:
         parser.error("--warmup must be 0 or greater")
+    if args.camera_fps <= 0:
+        parser.error("--camera-fps must be positive")
+    if args.max_skew_ms < 0:
+        parser.error("--max-skew-ms must be 0 or greater")
     if (args.pattern_cols is None) != (args.pattern_rows is None):
         parser.error("--pattern-cols and --pattern-rows must be provided together")
     if args.pattern_cols is not None and (args.pattern_cols <= 2 or args.pattern_rows <= 2):
@@ -46,8 +52,12 @@ def main() -> int:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    left_source = VideoSource(args.left_source)
-    right_source = VideoSource(args.right_source)
+    stereo_source = StereoVideoSource(
+        args.left_source,
+        args.right_source,
+        camera_fps=args.camera_fps,
+        max_skew_ms=args.max_skew_ms,
+    )
     try:
         if args.warmup:
             print(f"Warming up cameras for {args.warmup:.1f}s...")
@@ -60,10 +70,16 @@ def main() -> int:
                 print(f"Pair {index + 1}/{args.pairs}: position checkerboard, capturing in {args.interval:.1f}s...")
                 time.sleep(args.interval)
 
-            left_ok, left_frame = left_source.read()
-            right_ok, right_frame = right_source.read()
-            if not left_ok or left_frame is None or not right_ok or right_frame is None:
+            pair_ok, pair = stereo_source.read()
+            if not pair_ok or pair is None:
                 raise RuntimeError("Could not read both camera frames")
+            if not pair.within_tolerance:
+                raise RuntimeError(
+                    f"Stereo frame skew was {pair.skew_ms:.2f}ms, above the "
+                    f"{args.max_skew_ms:.2f}ms limit"
+                )
+            left_frame = pair.left
+            right_frame = pair.right
 
             left_path = output_dir / f"left_{index:03d}.jpg"
             right_path = output_dir / f"right_{index:03d}.jpg"
@@ -72,14 +88,16 @@ def main() -> int:
             cv2.imwrite(str(left_path), left_frame)
             cv2.imwrite(str(right_path), right_frame)
             cv2.imwrite(str(preview_path), make_side_by_side_preview(left_frame, right_frame, validation))
-            print(f"Saved {left_path}, {right_path}, and {preview_path}")
+            print(
+                f"Saved {left_path}, {right_path}, and {preview_path} "
+                f"(frame skew {pair.skew_ms:.2f}ms)"
+            )
             if validation is not None:
                 print(format_validation_result(validation))
 
         return 0
     finally:
-        left_source.release()
-        right_source.release()
+        stereo_source.release()
 
 
 def make_side_by_side_preview(left_frame, right_frame, validation=None):

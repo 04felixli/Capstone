@@ -18,9 +18,14 @@ haptos/
   types.py
   cv/
     camera.py
+    depth_smoother.py
     detector.py
     postprocess.py
+    stereo.py
+    stereo_calibration.py
     utils.py
+  fusion/
+    hazard_decision.py
   sensor/
     lidar_buffer.py
     lidar_filter.py
@@ -78,6 +83,97 @@ Use a different model or confidence threshold:
 python main.py --source webcam --model yolov8n.pt --conf 0.5 --show
 ```
 
+## Raspberry Pi Stereo Depth
+
+The Waveshare dual IMX219 module is treated as two Raspberry Pi cameras. On
+Raspberry Pi 5, configure both sensors in `/boot/firmware/config.txt`:
+
+```text
+dtoverlay=imx219,cam0
+dtoverlay=imx219,cam1
+```
+
+After rebooting, confirm that both cameras appear:
+
+```bash
+rpicam-hello --list-cameras
+```
+
+Capture 25-40 checkerboard pairs at the same 640x480 resolution used at
+runtime. `pattern-cols` and `pattern-rows` are the checkerboard's inner corner
+counts, not its square counts:
+
+```bash
+python scripts/capture_stereo_pairs.py \
+  --left-source picamera0 \
+  --right-source picamera1 \
+  --pairs 30 \
+  --pattern-cols 9 \
+  --pattern-rows 6
+```
+
+Calibrate using the checkerboard's measured square size:
+
+```bash
+python scripts/calibrate_stereo.py \
+  --image-dir calibration/images \
+  --output calibration/stereo_calibration.npz \
+  --pattern-cols 9 \
+  --pattern-rows 6 \
+  --square-size-m 0.024
+```
+
+The stereo runtime uses libcamera's server/client synchronization controls,
+pairs frames by `SensorTimestamp`, rejects pairs over the skew limit, filters
+locally inconsistent disparity pixels, and reports per-object depth
+uncertainty.
+
+Export the nano detector to NCNN on a development computer:
+
+```bash
+yolo export model=yolov8n.pt format=ncnn imgsz=512
+```
+
+For better accuracy without a larger Pi model, fine-tune the nano checkpoint
+on chest-mounted Haptos images and export the best checkpoint in one command:
+
+```bash
+python scripts/train_detector.py \
+  --data datasets/haptos/data.yaml \
+  --base-model yolov8n.pt \
+  --epochs 80 \
+  --export-ncnn \
+  --export-imgsz 512
+```
+
+Training should run on a laptop or GPU machine, not on the Pi. Include
+hallways, sidewalks, people, chairs, curbs, motion blur, low light, and hard
+negative images where no obstacle is present. Keep separate train, validation,
+and test splits captured on different walks.
+
+Copy the exported model directory to the Pi, then run:
+
+```bash
+python main.py \
+  --source picamera0 \
+  --stereo-depth \
+  --stereo-right-source picamera1 \
+  --stereo-calibration calibration/stereo_calibration.npz \
+  --backend ncnn \
+  --model yolov8n_ncnn_model \
+  --conf 0.25 \
+  --fps 8
+```
+
+Important stereo quality controls:
+
+- `--stereo-max-skew-ms 8` rejects left/right images captured too far apart.
+- `--depth-min-valid-fraction 0.15` rejects sparse depth inside an object box.
+- `--depth-max-relative-uncertainty 0.35` rejects noisy object distances.
+- `--depth-smoothing-window 5` median-filters recent depths for matching objects.
+- `--hazard-distance-m 2.5` ignores distant objects only when their depth is trustworthy.
+- `--emergency-stop-distance-m 0.8` forces `STOP` for a trusted near camera or LiDAR obstacle.
+
 Run with a serial-connected LiDAR:
 
 ```bash
@@ -127,7 +223,9 @@ Each logged JSONL row contains:
 - navigation command
 - FPS estimate
 - detections with class name, confidence, bounding box, region, and obstacle flag
+- per-detection depth, valid-pixel fraction, robust uncertainty, and fault state
 - optional LiDAR summary with fault state, point count, and nearest/median/farthest filtered distance
+- stereo frame skew, valid-pixel fraction, and depth summary
 
 ## Navigation Logic
 
@@ -139,15 +237,21 @@ The image is split into thirds:
 
 For now, common classes such as `person`, `bicycle`, `chair`, `backpack`, `car`, and `dog` are treated as obstacles.
 
-The first-pass command logic is:
+The distance-aware command logic is:
 
-- obstacle in `CENTER` -> `STOP`
+- trusted obstacle at or below the emergency distance -> `STOP`
+- trusted LiDAR return at or below the emergency distance -> `STOP`
+- trusted object beyond the hazard distance -> ignore it for the current command
+- uncertain or missing depth -> retain the conservative camera-only behavior
+- actionable obstacle in `CENTER` -> `STOP`
 - obstacle in `LEFT` only -> `GO_RIGHT`
 - obstacle in `RIGHT` only -> `GO_LEFT`
 - no obstacles -> `FORWARD`
 - obstacles in multiple regions -> `STOP`
 
-This is deliberately simple so later work can combine CV output with ultrasonic sensors, IMU data, and haptic feedback policies.
+The thresholds are engineering defaults for prototype testing, not
+safety-certified values. Validate them with measured indoor and outdoor test
+courses before relying on haptic output.
 
 ## Testing Plan
 
@@ -168,4 +272,13 @@ This is deliberately simple so later work can combine CV output with ultrasonic 
 
 ## Raspberry Pi Notes
 
-The code avoids laptop-only assumptions beyond OpenCV camera access. For a Raspberry Pi migration, keep the same module boundaries and swap only the input or model configuration if needed. Smaller models, lower input resolution, and no display window will usually improve Pi performance.
+Use a Raspberry Pi 5 supply capable of the recommended 5V/5A mode and active
+cooling. A 3A supply restricts downstream USB peripheral power, which matters
+when USB LiDAR hardware is attached. Use a powered USB hub when the sensors'
+combined draw exceeds the Pi's peripheral budget.
+
+Run without `--show` on the wearable. Prefer the NCNN nano model and cap
+processing with `--fps` while measuring latency, temperature, throttling, and
+missed detections. The runtime does not generate a dense 3D camera point cloud;
+it computes a depth map and samples only the object regions needed for hazard
+decisions.

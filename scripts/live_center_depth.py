@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from haptos.cv.camera import VideoSource  # noqa: E402
+from haptos.cv.camera import StereoVideoSource  # noqa: E402
 from haptos.cv.stereo import StereoDepthEstimator, measure_center_depth  # noqa: E402
 
 
@@ -23,6 +23,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--center-box-size", type=int, default=80, help="Center square size in pixels")
     parser.add_argument("--fps", type=float, default=1.0, help="Maximum reporting FPS. Use 0 to run as fast as possible.")
     parser.add_argument("--warmup", type=float, default=1.0, help="Seconds to let cameras settle before readings")
+    parser.add_argument("--camera-fps", type=float, default=30.0, help="Fixed stereo camera capture FPS")
+    parser.add_argument("--max-skew-ms", type=float, default=8.0, help="Maximum accepted frame timestamp skew")
     args = parser.parse_args()
     if args.center_box_size <= 0:
         parser.error("--center-box-size must be positive")
@@ -30,13 +32,21 @@ def parse_args() -> argparse.Namespace:
         parser.error("--fps must be 0 or greater")
     if args.warmup < 0:
         parser.error("--warmup must be 0 or greater")
+    if args.camera_fps <= 0:
+        parser.error("--camera-fps must be positive")
+    if args.max_skew_ms < 0:
+        parser.error("--max-skew-ms must be 0 or greater")
     return args
 
 
 def main() -> int:
     args = parse_args()
-    left_source = VideoSource(args.source)
-    right_source = VideoSource(args.stereo_right_source)
+    stereo_source = StereoVideoSource(
+        args.source,
+        args.stereo_right_source,
+        camera_fps=args.camera_fps,
+        max_skew_ms=args.max_skew_ms,
+    )
     try:
         if args.warmup:
             time.sleep(args.warmup)
@@ -53,15 +63,23 @@ def main() -> int:
 
         while True:
             loop_started_at = time.monotonic()
-            left_ok, left_frame = left_source.read()
-            right_ok, right_frame = right_source.read()
-            if not left_ok or left_frame is None:
-                raise RuntimeError(f"No frame received from source '{args.source}'")
-            if not right_ok or right_frame is None:
-                raise RuntimeError(f"No frame received from stereo right source '{args.stereo_right_source}'")
+            pair_ok, pair = stereo_source.read()
+            if not pair_ok or pair is None:
+                raise RuntimeError("No synchronized stereo pair received")
+            if not pair.within_tolerance:
+                print(
+                    f"Frame skipped: stereo skew {pair.skew_ms:.2f}ms exceeds "
+                    f"{args.max_skew_ms:.2f}ms",
+                    file=sys.stderr,
+                )
+                continue
 
             depth_started_at = time.perf_counter()
-            stereo_frame = depth_estimator.estimate_frame(left_frame, right_frame)
+            stereo_frame = depth_estimator.estimate_frame(
+                pair.left,
+                pair.right,
+                frame_skew_ms=pair.skew_ms,
+            )
             depth_latency_ms = (time.perf_counter() - depth_started_at) * 1000.0
 
             frame_index += 1
@@ -81,8 +99,7 @@ def main() -> int:
         print("Interrupted by user.", file=sys.stderr)
         return 130
     finally:
-        left_source.release()
-        right_source.release()
+        stereo_source.release()
 
 
 def format_center_depth(frame_index: int, measurement, depth_latency_ms: float) -> str:

@@ -9,8 +9,10 @@ import numpy as np
 from haptos.cv.stereo import (
     attach_depth_to_detections,
     disparity_to_depth,
+    filter_disparity_map,
     measure_center_depth,
     measure_detection_depth,
+    measure_depth_in_bbox,
     summarize_disparity,
 )
 from haptos.cv.stereo_calibration import (
@@ -138,6 +140,39 @@ class StereoDepthSummaryTests(unittest.TestCase):
         detections = [Detection(class_name="person", confidence=0.9, bbox=(0, 0, 1, 1))]
 
         self.assertIs(attach_depth_to_detections(detections, None), detections)
+
+    def test_depth_measurement_rejects_sparse_valid_pixels(self):
+        depth = np.full((10, 10), np.nan, dtype=np.float32)
+        depth[0, 0] = 1.0
+
+        measurement = measure_depth_in_bbox(
+            depth,
+            (0, 0, 10, 10),
+            min_valid_fraction=0.10,
+        )
+
+        self.assertIsNone(measurement.median_depth_m)
+        self.assertEqual(measurement.fault_state, "insufficient_valid_pixels")
+        self.assertAlmostEqual(measurement.valid_fraction, 0.01)
+
+    def test_depth_measurement_reports_robust_uncertainty(self):
+        depth = np.array([[1.9, 2.0], [2.1, 8.0]], dtype=np.float32)
+
+        measurement = measure_depth_in_bbox(depth, (0, 0, 2, 2))
+
+        self.assertEqual(measurement.fault_state, "none")
+        self.assertAlmostEqual(measurement.median_depth_m, 2.0, places=5)
+        self.assertGreater(measurement.depth_uncertainty_m, 0.0)
+
+    def test_filter_disparity_map_rejects_invalid_values(self):
+        disparity = np.full((7, 7), 10.0, dtype=np.float32)
+        disparity[3, 3] = -1.0
+
+        filtered, valid_mask = filter_disparity_map(disparity)
+
+        self.assertFalse(valid_mask[3, 3])
+        self.assertTrue(np.isnan(filtered[3, 3]))
+        self.assertTrue(valid_mask[0, 0])
 
     def test_stereo_calibration_round_trips_to_npz(self):
         calibration = _make_test_calibration()

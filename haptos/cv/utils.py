@@ -81,7 +81,12 @@ def draw_detections(frame, detections: Iterable[Detection]) -> None:
         x1, y1, x2, y2 = detection.bbox
         color = (0, 0, 255) if detection.is_obstacle else (0, 180, 0)
         depth = _format_optional_distance(detection.median_depth_m)
-        depth_label = f" {depth}" if detection.median_depth_m is not None else ""
+        uncertainty = _format_optional_distance(detection.depth_uncertainty_m)
+        depth_label = ""
+        if detection.median_depth_m is not None:
+            depth_label = f" {depth}"
+            if detection.depth_uncertainty_m is not None:
+                depth_label += f"+/-{uncertainty}"
         label = f"{detection.class_name} {detection.region} {detection.confidence:.2f}{depth_label}"
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
@@ -111,7 +116,11 @@ def draw_overlay(frame, result: FrameResult) -> None:
     if result.stereo_depth_summary is not None:
         stereo = result.stereo_depth_summary
         depth = _format_optional_distance(stereo.median_depth_m)
-        stereo_status = f"stereo={stereo.fault_state} pixels={stereo.valid_pixel_count} median={depth}"
+        skew = _format_optional_number(stereo.frame_skew_ms)
+        stereo_status = (
+            f"stereo={stereo.fault_state} valid={stereo.valid_fraction:.0%} "
+            f"median={depth} skew={skew}ms"
+        )
         cv2.putText(frame, stereo_status, (10, frame.shape[0] - 76), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 0), 2)
 
 
@@ -154,4 +163,6 @@ def _format_detection(detection: Detection) -> str:
     result = f"{detection.class_name}:{detection.region.lower()}:{detection.confidence:.2f}"
     if detection.median_depth_m is not None:
         result += f":{_format_optional_distance(detection.median_depth_m)}"
+        if detection.depth_uncertainty_m is not None:
+            result += f"+/-{_format_optional_distance(detection.depth_uncertainty_m)}"
     return result

@@ -23,6 +23,9 @@ class Detection:
     is_obstacle: bool = False
     median_depth_m: Optional[float] = None
     depth_pixel_count: int = 0
+    depth_uncertainty_m: Optional[float] = None
+    depth_valid_fraction: float = 0.0
+    depth_fault_state: str = "not_available"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -63,6 +66,8 @@ class StereoDepthSummary:
     nearest_depth_m: Optional[float] = None
     median_depth_m: Optional[float] = None
     farthest_depth_m: Optional[float] = None
+    valid_fraction: float = 0.0
+    frame_skew_ms: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
