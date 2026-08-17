@@ -6,8 +6,9 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from haptos.config import STEREO_DEFAULT_MAX_DEPTH_M
 from haptos.types import Detection, StereoDepthSummary
-from haptos.cv.stereo_calibration import StereoCalibration, load_stereo_rectification
+from haptos.cv.stereo_calibration import load_stereo_rectification
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,7 @@ class StereoDepthEstimator:
         focal_px: Optional[float] = None,
         calibration_path: Optional[str] = None,
         min_valid_disparity_px: float = 0.5,
-        max_depth_m: float = 8.0,
+        max_depth_m: float = STEREO_DEFAULT_MAX_DEPTH_M,
         local_disparity_tolerance_px: float = 2.0,
     ):
         if num_disparities <= 0 or num_disparities % 16 != 0:
@@ -85,11 +86,6 @@ class StereoDepthEstimator:
             speckleRange=32,
             mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY,
         )
-
-    def estimate(self, left_frame, right_frame) -> StereoDepthSummary:
-        """Return a compact depth summary for a pair of BGR frames."""
-
-        return self.estimate_frame(left_frame, right_frame).summary
 
     def estimate_frame(
         self,
@@ -141,7 +137,7 @@ def attach_depth_to_detections(
     detections: list[Detection],
     depth_m: Optional[np.ndarray],
     min_valid_depth_m: float = 0.05,
-    max_valid_depth_m: float = 8.0,
+    max_valid_depth_m: float = STEREO_DEFAULT_MAX_DEPTH_M,
     bbox_scale: float = 0.6,
     min_valid_fraction: float = 0.05,
     max_relative_uncertainty: float = 1.0,
@@ -182,7 +178,7 @@ def measure_detection_depth(
     detection: Detection,
     depth_m: np.ndarray,
     min_valid_depth_m: float = 0.05,
-    max_valid_depth_m: float = 8.0,
+    max_valid_depth_m: float = STEREO_DEFAULT_MAX_DEPTH_M,
     bbox_scale: float = 0.6,
     min_valid_fraction: float = 0.05,
     max_relative_uncertainty: float = 1.0,
@@ -213,7 +209,7 @@ def measure_center_depth(
     depth_m: np.ndarray,
     box_size_px: int = 80,
     min_valid_depth_m: float = 0.05,
-    max_valid_depth_m: float = 8.0,
+    max_valid_depth_m: float = STEREO_DEFAULT_MAX_DEPTH_M,
     min_valid_fraction: float = 0.05,
     max_relative_uncertainty: float = 1.0,
 ) -> DetectionDepthMeasurement:
@@ -246,7 +242,7 @@ def measure_depth_in_bbox(
     depth_m: np.ndarray,
     bbox,
     min_valid_depth_m: float = 0.05,
-    max_valid_depth_m: float = 8.0,
+    max_valid_depth_m: float = STEREO_DEFAULT_MAX_DEPTH_M,
     min_valid_fraction: float = 0.05,
     max_relative_uncertainty: float = 1.0,
 ) -> DetectionDepthMeasurement:

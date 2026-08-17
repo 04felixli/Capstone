@@ -6,6 +6,7 @@ from typing import Deque, Dict, Optional
 
 import numpy as np
 
+from haptos.cv.geometry import bbox_iou
 from haptos.types import BBox, Detection
 
 
@@ -83,7 +84,7 @@ class DetectionDepthSmoother:
         for track_id, track in self._tracks.items():
             if track_id in excluded or track.class_name != detection.class_name:
                 continue
-            iou = _bbox_iou(track.bbox, detection.bbox)
+            iou = bbox_iou(track.bbox, detection.bbox)
             if iou >= best_iou:
                 best_track_id = track_id
                 best_iou = iou
@@ -108,16 +109,3 @@ class DetectionDepthSmoother:
         ]
         for track_id in stale:
             del self._tracks[track_id]
-
-
-def _bbox_iou(first: BBox, second: BBox) -> float:
-    x1 = max(first[0], second[0])
-    y1 = max(first[1], second[1])
-    x2 = min(first[2], second[2])
-    y2 = min(first[3], second[3])
-
-    intersection = max(0, x2 - x1) * max(0, y2 - y1)
-    first_area = max(0, first[2] - first[0]) * max(0, first[3] - first[1])
-    second_area = max(0, second[2] - second[0]) * max(0, second[3] - second[1])
-    union = first_area + second_area - intersection
-    return float(intersection / union) if union else 0.0

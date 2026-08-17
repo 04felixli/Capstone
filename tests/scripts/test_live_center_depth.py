@@ -3,7 +3,7 @@
 import unittest
 
 from haptos.cv.stereo import DetectionDepthMeasurement
-from scripts.live_center_depth import format_center_depth
+from scripts.debug.live_center_depth import format_center_depth
 
 
 class LiveCenterDepthFormattingTests(unittest.TestCase):

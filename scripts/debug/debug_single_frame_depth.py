@@ -8,7 +8,7 @@ from pathlib import Path
 
 import cv2
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from haptos.config import DEFAULT_CONFIDENCE, DEFAULT_DETECTOR_BACKEND, DEFAULT_MODEL  # noqa: E402
 from haptos.cv.camera import VideoSource  # noqa: E402

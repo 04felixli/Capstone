@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cv2
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from haptos.cv.stereo_calibration import (  # noqa: E402
     estimate_uncalibrated_rectification_from_images,

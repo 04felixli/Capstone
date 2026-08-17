@@ -30,7 +30,7 @@ from haptos.config import (
     STEREO_DEFAULT_SMOOTHING_WINDOW,
 )
 from haptos.cv.postprocess import filter_and_enrich_detections
-from haptos.cv.utils import FPSCounter, JsonlLogger, draw_overlay, format_console_result
+from haptos.cv.utils import FPSCounter, JsonlLogger, draw_overlay, format_console_result, sleep_to_maintain_rate
 from haptos.fusion.hazard_decision import generate_fused_navigation_hint
 from haptos.sensor.lidar_buffer import LidarFrameBuffer
 from haptos.sensor.lidar_filter import filter_lidar_scan
@@ -129,7 +129,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--stereo-calibration",
-        help="Optional .npz calibration file from scripts/calibrate_stereo.py. Overrides rough baseline/focal values.",
+        help="Optional .npz calibration file from scripts/calibration/calibrate_stereo.py. Overrides rough baseline/focal values.",
     )
     parser.add_argument(
         "--depth-bbox-scale",
@@ -219,6 +219,7 @@ def main() -> int:
     source = None
     stereo_source = None
     logger = None
+    lidar_reader = None
     try:
         source_name = args.stereo_left_source if args.stereo_depth else args.source
         stereo_estimator = None
@@ -354,11 +355,7 @@ def main() -> int:
             if is_image:
                 break
 
-            if frame_interval_s > 0:
-                elapsed_s = time.monotonic() - loop_started_at
-                sleep_s = frame_interval_s - elapsed_s
-                if sleep_s > 0:
-                    time.sleep(sleep_s)
+            sleep_to_maintain_rate(loop_started_at, frame_interval_s)
 
         return 0
 
@@ -375,7 +372,7 @@ def main() -> int:
             stereo_source.release()
         if logger is not None:
             logger.close()
-        if "lidar_reader" in locals() and lidar_reader is not None:
+        if lidar_reader is not None:
             lidar_reader.close()
         if args.show:
             cv2.destroyAllWindows()

@@ -6,7 +6,13 @@ from typing import Optional
 
 import numpy as np
 
-from haptos.config import LIDAR_SOURCE_NONE, LIDAR_SOURCE_SERIAL
+from haptos.config import (
+    LIDAR_DEFAULT_BAUDRATE,
+    LIDAR_DEFAULT_MIN_SAMPLES,
+    LIDAR_DEFAULT_SCAN_TIMEOUT_S,
+    LIDAR_SOURCE_NONE,
+    LIDAR_SOURCE_SERIAL,
+)
 from haptos.types import RawLidarScan
 
 
@@ -34,10 +40,10 @@ class SerialLidarReader:
     def __init__(
         self,
         port: str,
-        baudrate: int = 115200,
+        baudrate: int = LIDAR_DEFAULT_BAUDRATE,
         serial_timeout_s: float = 0.05,
-        scan_timeout_s: float = 0.20,
-        min_samples: int = 5,
+        scan_timeout_s: float = LIDAR_DEFAULT_SCAN_TIMEOUT_S,
+        min_samples: int = LIDAR_DEFAULT_MIN_SAMPLES,
     ):
         if not port:
             raise ValueError("A LiDAR serial port is required, for example COM5.")
@@ -130,9 +136,9 @@ def parse_lidar_sample_line(line: str) -> Optional[LidarSample]:
 def create_lidar_reader(
     source: str,
     port: Optional[str] = None,
-    baudrate: int = 115200,
-    scan_timeout_s: float = 0.20,
-    min_samples: int = 5,
+    baudrate: int = LIDAR_DEFAULT_BAUDRATE,
+    scan_timeout_s: float = LIDAR_DEFAULT_SCAN_TIMEOUT_S,
+    min_samples: int = LIDAR_DEFAULT_MIN_SAMPLES,
 ) -> Optional[SerialLidarReader]:
     """Create a LiDAR reader from CLI configuration."""
 

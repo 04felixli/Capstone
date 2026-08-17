@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from scripts.capture_stereo_pairs import (
+from scripts.calibration.capture_stereo_pairs import (
     detect_checkerboard,
     format_validation_result,
     make_side_by_side_preview,

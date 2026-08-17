@@ -1,6 +1,6 @@
 """Convert raw detections into navigation-friendly frame results."""
 
-from typing import Iterable, List, Set
+from typing import Iterable, List, Set, Tuple
 
 from haptos.config import (
     CENTER_REGION,
@@ -15,13 +15,18 @@ from haptos.config import (
 from haptos.types import Detection
 
 
+def region_boundaries(frame_width: int) -> Tuple[float, float]:
+    """Return the LEFT/CENTER and CENTER/RIGHT pixel boundaries for a frame width."""
+
+    return frame_width / 3.0, 2.0 * frame_width / 3.0
+
+
 def map_bbox_to_region(bbox, frame_width: int) -> str:
     """Map a detection center point to LEFT, CENTER, or RIGHT image thirds."""
 
     x1, _, x2, _ = bbox
     center_x = (x1 + x2) / 2.0
-    one_third = frame_width / 3.0
-    two_thirds = 2.0 * frame_width / 3.0
+    one_third, two_thirds = region_boundaries(frame_width)
 
     if center_x < one_third:
         return LEFT_REGION

@@ -5,10 +5,11 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from haptos.cv.camera import StereoVideoSource  # noqa: E402
 from haptos.cv.stereo import StereoDepthEstimator, measure_center_depth  # noqa: E402
+from haptos.cv.utils import sleep_to_maintain_rate  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -89,11 +90,7 @@ def main() -> int:
 
             print(format_center_depth(frame_index, measurement, depth_latency_ms), flush=True)
 
-            if frame_interval_s > 0:
-                elapsed_s = time.monotonic() - loop_started_at
-                sleep_s = frame_interval_s - elapsed_s
-                if sleep_s > 0:
-                    time.sleep(sleep_s)
+            sleep_to_maintain_rate(loop_started_at, frame_interval_s)
 
     except KeyboardInterrupt:
         print("Interrupted by user.", file=sys.stderr)

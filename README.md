@@ -11,8 +11,23 @@ No GPIO-specific code is included. LiDAR integration uses a serial port so the s
 ```text
 haptos-cv/
 README.md
+CLAUDE.md
 requirements.txt
+requirements-pi.txt
 main.py
+docs/
+  research.md
+  roadmap.md
+firmware/           # placeholder for future CPU/wristband firmware
+scripts/
+  calibration/
+    calibrate_stereo.py
+    capture_stereo_pairs.py
+    estimate_uncalibrated_rectification.py
+  debug/
+    debug_single_frame_depth.py
+    live_center_depth.py
+  train_detector.py
 haptos/
   config.py
   types.py
@@ -30,9 +45,12 @@ haptos/
     lidar_buffer.py
     lidar_filter.py
     lidar_reader.py
+  feedback/          # placeholder for future haptic/audio output logic
 tests/
+  cv/
+  fusion/
   sensor/
-    test_lidar.py
+  scripts/
 ```
 
 Runtime imports use the `haptos` package layout so project modules do not
@@ -104,7 +122,7 @@ runtime. `pattern-cols` and `pattern-rows` are the checkerboard's inner corner
 counts, not its square counts:
 
 ```bash
-python scripts/capture_stereo_pairs.py \
+python scripts/calibration/capture_stereo_pairs.py \
   --left-source picamera0 \
   --right-source picamera1 \
   --pairs 30 \
@@ -115,7 +133,7 @@ python scripts/capture_stereo_pairs.py \
 Calibrate using the checkerboard's measured square size:
 
 ```bash
-python scripts/calibrate_stereo.py \
+python scripts/calibration/calibrate_stereo.py \
   --image-dir calibration/images \
   --output calibration/stereo_calibration.npz \
   --pattern-cols 9 \

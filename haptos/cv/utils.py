@@ -8,6 +8,7 @@ from typing import Iterable, Optional
 import cv2
 
 from haptos.config import CENTER_REGION, LEFT_REGION, RIGHT_REGION
+from haptos.cv.postprocess import region_boundaries
 from haptos.types import Detection, FrameResult
 
 
@@ -54,12 +55,24 @@ class JsonlLogger:
         self._file.close()
 
 
+def sleep_to_maintain_rate(loop_started_at: float, frame_interval_s: float) -> None:
+    """Sleep long enough to cap a processing loop at frame_interval_s per iteration."""
+
+    if frame_interval_s <= 0:
+        return
+    elapsed_s = time.monotonic() - loop_started_at
+    sleep_s = frame_interval_s - elapsed_s
+    if sleep_s > 0:
+        time.sleep(sleep_s)
+
+
 def draw_regions(frame) -> None:
     """Draw vertical dividers for LEFT/CENTER/RIGHT navigation regions."""
 
     height, width = frame.shape[:2]
-    x1 = width // 3
-    x2 = (2 * width) // 3
+    one_third, two_thirds = region_boundaries(width)
+    x1 = int(round(one_third))
+    x2 = int(round(two_thirds))
     color = (220, 220, 220)
 
     cv2.line(frame, (x1, 0), (x1, height), color, 1)

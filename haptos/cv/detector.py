@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from haptos.config import DETECTOR_BACKEND_NCNN, DETECTOR_BACKEND_ULTRALYTICS
+from haptos.cv.geometry import box_iou
 from haptos.types import Detection
 
 COCO_NAMES: Dict[int, str] = {
@@ -116,19 +117,18 @@ class YoloDetector:
         if not results:
             return []
 
-        result = results[0]
+        boxes = results[0].boxes
+        class_ids = boxes.cls.tolist()
+        confidences = boxes.conf.tolist()
+        xyxys = boxes.xyxy.tolist()
+
         detections: List[Detection] = []
-
-        for box in result.boxes:
-            class_id = int(box.cls[0])
-            class_name = self.model.names.get(class_id, str(class_id))
-            confidence = float(box.conf[0])
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
-
+        for class_id, confidence, (x1, y1, x2, y2) in zip(class_ids, confidences, xyxys):
+            class_name = self.model.names.get(int(class_id), str(int(class_id)))
             detections.append(
                 Detection(
                     class_name=class_name,
-                    confidence=confidence,
+                    confidence=float(confidence),
                     bbox=(int(x1), int(y1), int(x2), int(y2)),
                 )
             )
@@ -211,12 +211,10 @@ def _preprocess_frame(frame, img_size: int) -> Tuple[np.ndarray, float, float, f
     resized_height = int(round(height * scale))
 
     resized = cv2.resize(frame, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
-    pad_left = (img_size - resized_width) / 2.0
-    pad_top = (img_size - resized_height) / 2.0
-    pad_right = img_size - resized_width - int(round(pad_left - 0.1))
-    pad_bottom = img_size - resized_height - int(round(pad_top - 0.1))
-    pad_left_int = int(round(pad_left - 0.1))
-    pad_top_int = int(round(pad_top - 0.1))
+    pad_left_int = int(round((img_size - resized_width) / 2.0 - 0.1))
+    pad_top_int = int(round((img_size - resized_height) / 2.0 - 0.1))
+    pad_right = img_size - resized_width - pad_left_int
+    pad_bottom = img_size - resized_height - pad_top_int
 
     padded = cv2.copyMakeBorder(
         resized,
@@ -332,26 +330,10 @@ def _nms(
         if order.size == 1:
             break
 
-        ious = _box_iou(boxes[current], boxes[order[1:]])
+        ious = box_iou(boxes[current], boxes[order[1:]])
         order = order[1:][ious <= iou_threshold]
 
     return keep
-
-
-def _box_iou(box: np.ndarray, other_boxes: np.ndarray) -> np.ndarray:
-    x1 = np.maximum(box[0], other_boxes[:, 0])
-    y1 = np.maximum(box[1], other_boxes[:, 1])
-    x2 = np.minimum(box[2], other_boxes[:, 2])
-    y2 = np.minimum(box[3], other_boxes[:, 3])
-
-    intersection = np.maximum(0.0, x2 - x1) * np.maximum(0.0, y2 - y1)
-    box_area = max(0.0, float((box[2] - box[0]) * (box[3] - box[1])))
-    other_areas = np.maximum(0.0, other_boxes[:, 2] - other_boxes[:, 0]) * np.maximum(
-        0.0,
-        other_boxes[:, 3] - other_boxes[:, 1],
-    )
-    union = box_area + other_areas - intersection
-    return intersection / np.maximum(union, 1e-6)
 
 
 def _read_img_size(metadata_path: Path) -> int:
