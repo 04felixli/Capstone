@@ -1,7 +1,7 @@
-"""Bounding-box geometry helpers shared across detection and tracking code.
+"""Bounding-box geometry helpers shared across detection code.
 
-Kept free of cv2/heavier dependencies so pure-math consumers (e.g. the depth
-smoother) don't have to pull in drawing/video libraries just for IoU math.
+Kept free of cv2/heavier dependencies so pure-math consumers don't have to
+pull in drawing/video libraries just for IoU math.
 """
 
 import numpy as np
@@ -23,9 +23,3 @@ def box_iou(box: np.ndarray, other_boxes: np.ndarray) -> np.ndarray:
     )
     union = box_area + other_areas - intersection
     return intersection / np.maximum(union, 1e-6)
-
-
-def bbox_iou(first, second) -> float:
-    """Scalar IoU between two (x1, y1, x2, y2) boxes, e.g. for track matching."""
-
-    return float(box_iou(np.asarray(first, dtype=np.float32), np.asarray([second], dtype=np.float32))[0])
