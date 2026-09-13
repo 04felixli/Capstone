@@ -46,38 +46,60 @@ Spec F5 requires detecting "dim lighting" as a fault condition.
 
 ---
 
-## Distance Sensor Interface (Phase 3)
+## 2D LiDAR Sensing (Phase 3 — largely resolved)
 
-### Sensor Hardware Selection
-Spec F1 requires 0.3 m to 2.0 m range.
+The single-point ultrasonic/IR sensor plan this section used to describe (HC-SR04 vs VL53L1X, multi-sensor array layout) was superseded: a 2D serial LiDAR was selected and implemented instead (`sensor/lidar_reader.py`, `sensor/lidar_filter.py`), since it gives per-angle range data across the whole scan rather than one scalar per sensor, at the same 0.3–2.0 m range spec F1 requires. Treat the code as authoritative here; the open research has moved on to reconstructing 3D structure from that 2D scan (below).
 
-- **HC-SR04 (ultrasonic)** — cheap, 2 cm to 4 m range, GPIO trigger/echo. Affected by soft/angled surfaces and background noise.
-- **VL53L1X (IR/ToF, I2C)** — accurate up to ~4 m, faster update rate, more robust to acoustic noise. Higher cost.
-- **GP2Y0A21YK0F (IR analog)** — 10–80 cm only; too short for spec F1.
+## 2D LiDAR → 3D Reconstruction (Phase 4)
 
-**Decision needed:** HC-SR04 (simple, cheap) vs VL53L1X (more accurate, I2C). VL53L1X is likely the better fit given the 2 m range requirement and navigation accuracy spec.
+**Active goal.** The 2D LiDAR sweeps azimuth internally already; the plan is to add elevation by physically tilting the sensor up and down (a nodding/push-broom scanner) and accumulating scans by tilt angle over time, rather than buying true 3D LiDAR hardware.
 
-### Multi-Sensor Array Layout
-The spec mentions a "sensor array" (plural). Research:
-- How many sensors, and at what body position (chest, waist, cane)?
-- Horizontal coverage: one sensor covers ~15° cone. To cover left/center/right, three sensors may be needed.
-- Crosstalk between simultaneous ultrasonic sensors — sensors must be triggered sequentially or use different frequencies.
+### Tilt Hardware Selection
+- Servo vs stepper for the tilt axis — a stepper gives repeatable absolute angle without feedback wiring; a hobby servo is simpler to drive but less precise at the edges of its range.
+- Sweep range and speed: how many degrees of tilt actually matter for a walking corridor (ground-to-head height at ~1–2 m), and how slow can the sweep be before it lags obstacle detection unacceptably.
+- Where the tilt interface lives: `set_tilt_angle()`/`get_tilt_angle()` need to report actual (not just commanded) angle if the motor can stall or lag.
 
-**Decision needed:** Number of sensors, their mounting positions, and trigger sequencing strategy.
+**Decision needed:** Servo vs stepper, and the tilt sweep range/rate to target for Phase 1.
+
+### Point Cloud Accumulation Strategy
+A full tilt sweep is much slower than the camera loop, so the point cloud has to be built incrementally rather than waiting for a complete sweep each time.
+
+- **Rolling/aging buffer** — keep the last N tilt-tagged scans, drop points older than some age. Simple, matches how `LidarFrameBuffer` already works for 2D frames.
+- **Fixed-grid accumulation** — bin points into a 3D occupancy grid and decay/refresh cells over time. More memory, cheaper to query for corridor occupancy.
+
+**Decision needed:** Extend `LidarFrameBuffer` for tilt-tagged 3D frames, or build a separate accumulation module — and rolling buffer vs grid.
+
+### Ground-Plane Removal
+Points from the ground itself shouldn't count as obstacles.
+
+- **Height threshold** — drop points below some fixed height once the sensor's mounting height and tilt geometry are known. Simple, works if the ground is flat.
+- **Plane fitting (RANSAC)** — fit a ground plane per accumulation window and remove inliers. More robust on sloped or uneven ground, more compute.
+
+**Decision needed:** Fixed height threshold is the right starting point given a fixed chest-mount height; revisit plane fitting only if outdoor slopes cause false positives.
+
+### Corridor Occupancy Check
+Phase 0 (no new hardware) needs an angle-aware occupancy check before any 3D work: restrict `nearest_distance_m`-style logic to points whose angle falls within a walking-corridor arc, instead of the nearest point across the entire 2D scan. Phase 2 generalizes this to 3D once points carry a tilt-derived height.
+
+**Decision needed:** The corridor arc width (in `angles_rad`) that best matches the camera's CENTER region, so the two channels agree on what "ahead" means.
+
+### LiDAR↔Camera Extrinsic Calibration (Phase 4 stretch)
+Only needed once 3D corridor occupancy is feeding fusion and there's a reason to know *which* detected object a LiDAR return corresponds to (point-to-bbox projection).
+
+- Requires known camera intrinsics (from Ultralytics/OpenCV) plus a measured or checkerboard-based rigid transform between the camera and LiDAR mounting points.
+
+**Decision needed:** Defer until Phases 0–3 are working; not a blocker for the current roadmap.
 
 ---
 
 ## Sensor Fusion (Phase 4)
 
 ### Fusion Strategy
-When CV says "STOP" and distance sensor says 1.8 m (no immediate threat), or vice versa, what wins?
+`fusion/hazard_decision.py` already implements the rule-based approach this section used to propose as a research question: a trusted LiDAR return at or below `emergency_stop_distance_m` (0.8 m by default, `HAZARD_DEFAULT_EMERGENCY_STOP_DISTANCE_M` in `config.py`) forces STOP; otherwise the camera's region-only logic (`generate_navigation_hint()`) decides. Remaining open question is whether this stays sufficient once LiDAR carries 3D corridor occupancy instead of a single nearest-distance scalar:
 
-Approaches:
-- **Rule-based priority** — distance sensor overrides CV below a threshold (e.g., < 0.5 m); CV leads above it. Simple and predictable. Start here.
 - **Confidence-weighted voting** — weight each source by its confidence score. More flexible but requires calibrated confidence values.
-- **Kalman filter** — model obstacle position as a state; fuse CV detections and sensor readings as noisy measurements. Overkill for MVP but useful if you need smooth directional estimates over time.
+- **Kalman filter** — model obstacle position as a state; fuse CV detections and LiDAR readings as noisy measurements. Overkill for MVP but useful if smooth directional estimates over time become necessary.
 
-**Decision needed:** Rule-based fusion is the right starting point. Define the distance threshold that triggers sensor-only override.
+**Decision needed:** Whether the flat threshold still holds once `generate_fused_navigation_hint()` consumes corridor occupancy (Phase 4 above) instead of `nearest_distance_m`, or whether it needs to become angle/region-aware too.
 
 ### Inter-Subsystem Communication Protocol
 How does the CV module (Pi) talk to the wristband firmware?

@@ -43,23 +43,32 @@ Remaining:
 
 ---
 
-## Phase 3 — Distance Sensor Interface
+## Phase 3 — 2D LiDAR Sensing and Fusion (superseded the single-point sensor plan below; largely done)
 
-**Goal:** Produce a sensor reading layer with the same output contract as the CV module.
+**Goal:** Produce a range reading layer with the same output contract as the CV module.
 
-- [ ] Select ultrasonic or IR sensor hardware and interface protocol (likely GPIO + trigger/echo or I2C).
-- [ ] Write a `sensor.py` module that returns `(distance_m: float, region: str)` readings at a fixed sample rate.
-- [ ] Implement fault detection: if a sensor returns out-of-range or inconsistent readings, emit a fault state rather than a bad reading.
-- [ ] Validate 0.3 m to 2.0 m detection range (spec F1) with physical measurements.
+The original plan for this phase was a single-point ultrasonic/IR sensor (see `docs/research.md`'s "2D LiDAR Sensing" section for what superseded it). A 2D serial LiDAR was selected instead — a better fit for spec F1's 0.3–2.0 m range, and it gives per-angle data instead of one scalar. Already done:
+- `sensor/lidar_reader.py` — serial LiDAR ingestion (`angle_deg,distance_mm,quality` samples) into `RawLidarScan`.
+- `sensor/lidar_filter.py` — range/quality filtering into `FilteredLidarFrame`, including fault state for a scan with no valid points.
+- `sensor/lidar_buffer.py` — short rolling history of filtered frames by timestamp.
+- `fusion/hazard_decision.py` — rule-based fusion: a trusted LiDAR return at or below `emergency_stop_distance_m` forces STOP, otherwise camera region logic decides.
+
+Remaining:
+- [ ] Validate 0.3 m to 2.0 m detection range (spec F1) with physical measurements against the LiDAR.
+- [ ] Implement remaining fault states beyond "no valid points" (spec F5): sensor disconnected/timeout, low battery, CV pipeline error, dim lighting.
 
 ---
 
-## Phase 4 — Sensor Fusion and Decision Logic (CPU Firmware)
+## Phase 4 — 2D→3D LiDAR Reconstruction and Decision Logic (CPU Firmware)
 
-**Goal:** Combine CV and distance sensor outputs into a single authoritative navigation command.
+**Goal:** Extend the 2D LiDAR into a 3D corridor-occupancy signal and fold it into the fused navigation command with confidence/fault handling.
 
-- [ ] Design the fusion schema: what CV output + distance reading maps to what fused command. Priority rule baseline: distance sensor takes precedence at < 0.5 m; CV leads at > 0.5 m.
-- [ ] Implement `fusion.py` (or equivalent on-device module) that ingests `FrameResult` from CV and `(distance_m, region)` from sensor and emits a fused command with confidence score.
+The 2D LiDAR already sweeps azimuth internally (each scan carries multiple `angle_deg` samples); the plan is to add elevation via a tilting mount rather than swap in 3D LiDAR hardware. See `docs/research.md` for the phased approach. In sequence:
+- [ ] **Phase 0 (no new hardware):** angle-aware occupancy check in the fusion layer — today `generate_fused_navigation_hint()` only reads `LidarFrameSummary.nearest_distance_m` (nearest point across the whole scan, angle discarded) even though `FilteredLidarFrame.points_xyz`/`.angles_rad` retain every point. Restrict the near-range check to a walking-corridor arc before building further.
+- [ ] **Phase 1:** tilt hardware interface (`set_tilt_angle()`/`get_tilt_angle()`); extend `polar_scan_to_xyz()` with a `tilt_deg` parameter (it hardcodes `y = 0` today).
+- [ ] **Phase 2:** accumulate tilt-tagged scans into a rolling 3D point cloud, with ground-plane removal and a 3D corridor-occupancy check generalizing Phase 0. `LidarFrameBuffer` may be extendable for this, or a new module may be cleaner.
+- [ ] **Phase 3:** feed 3D corridor occupancy into `generate_fused_navigation_hint()` as the LiDAR-side trust signal.
+- [ ] **Phase 4 (stretch):** LiDAR↔camera extrinsic calibration + point-to-bbox projection for tight fusion.
 - [ ] Implement all fault states (spec F5): low battery, sensor failure, CV pipeline error, dim lighting. Each fault maps to a distinct command that the wristband can render.
 - [ ] Log all fusion decisions and fault events (spec F7).
 - [ ] Validate spec F3 (75% navigation accuracy) end-to-end on a controlled obstacle course using fused output.
