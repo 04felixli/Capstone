@@ -21,11 +21,6 @@ class Detection:
     bbox: BBox
     region: Optional[str] = None
     is_obstacle: bool = False
-    median_depth_m: Optional[float] = None
-    depth_pixel_count: int = 0
-    depth_uncertainty_m: Optional[float] = None
-    depth_valid_fraction: float = 0.0
-    depth_fault_state: str = "not_available"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -51,23 +46,6 @@ class LidarFrameSummary:
     nearest_distance_m: Optional[float] = None
     median_distance_m: Optional[float] = None
     farthest_distance_m: Optional[float] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class StereoDepthSummary:
-    """Small JSON-safe summary of one stereo disparity/depth estimate."""
-
-    fault_state: str
-    valid_pixel_count: int
-    median_disparity_px: Optional[float] = None
-    nearest_depth_m: Optional[float] = None
-    median_depth_m: Optional[float] = None
-    farthest_depth_m: Optional[float] = None
-    valid_fraction: float = 0.0
-    frame_skew_ms: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -113,9 +91,7 @@ class FrameResult:
     detections: List[Detection]
     fps: float
     cv_latency_ms: Optional[float] = None
-    depth_latency_ms: Optional[float] = None
     lidar_summary: Optional[LidarFrameSummary] = None
-    stereo_depth_summary: Optional[StereoDepthSummary] = None
 
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {
@@ -125,11 +101,7 @@ class FrameResult:
         }
         if self.cv_latency_ms is not None:
             data["cv_latency_ms"] = self.cv_latency_ms
-        if self.depth_latency_ms is not None:
-            data["depth_latency_ms"] = self.depth_latency_ms
         data["detections"] = [d.to_dict() for d in self.detections]
         if self.lidar_summary is not None:
             data["lidar"] = self.lidar_summary.to_dict()
-        if self.stereo_depth_summary is not None:
-            data["stereo_depth"] = self.stereo_depth_summary.to_dict()
         return data

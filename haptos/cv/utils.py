@@ -93,14 +93,7 @@ def draw_detections(frame, detections: Iterable[Detection]) -> None:
     for detection in detections:
         x1, y1, x2, y2 = detection.bbox
         color = (0, 0, 255) if detection.is_obstacle else (0, 180, 0)
-        depth = _format_optional_distance(detection.median_depth_m)
-        uncertainty = _format_optional_distance(detection.depth_uncertainty_m)
-        depth_label = ""
-        if detection.median_depth_m is not None:
-            depth_label = f" {depth}"
-            if detection.depth_uncertainty_m is not None:
-                depth_label += f"+/-{uncertainty}"
-        label = f"{detection.class_name} {detection.region} {detection.confidence:.2f}{depth_label}"
+        label = f"{detection.class_name} {detection.region} {detection.confidence:.2f}"
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(
@@ -126,16 +119,6 @@ def draw_overlay(frame, result: FrameResult) -> None:
         lidar_status = f"lidar={lidar.fault_state} points={lidar.point_count} nearest={nearest}"
         cv2.putText(frame, lidar_status, (10, frame.shape[0] - 46), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 0), 2)
 
-    if result.stereo_depth_summary is not None:
-        stereo = result.stereo_depth_summary
-        depth = _format_optional_distance(stereo.median_depth_m)
-        skew = _format_optional_number(stereo.frame_skew_ms)
-        stereo_status = (
-            f"stereo={stereo.fault_state} valid={stereo.valid_fraction:.0%} "
-            f"median={depth} skew={skew}ms"
-        )
-        cv2.putText(frame, stereo_status, (10, frame.shape[0] - 76), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 0), 2)
-
 
 def format_console_result(result: FrameResult) -> str:
     if result.detections:
@@ -149,8 +132,7 @@ def format_console_result(result: FrameResult) -> str:
     return (
         f"Frame {result.frame_index} | "
         f"detections={detections} | "
-        f"cv_latency={_format_optional_latency(result.cv_latency_ms)} | "
-        f"depth_latency={_format_optional_latency(result.depth_latency_ms)}"
+        f"cv_latency={_format_optional_latency(result.cv_latency_ms)}"
     )
 
 
@@ -160,12 +142,6 @@ def _format_optional_distance(distance_m: Optional[float]) -> str:
     return f"{distance_m:.2f}m"
 
 
-def _format_optional_number(value: Optional[float]) -> str:
-    if value is None:
-        return "n/a"
-    return f"{value:.2f}"
-
-
 def _format_optional_latency(latency_ms: Optional[float]) -> str:
     if latency_ms is None:
         return "n/a"
@@ -173,9 +149,4 @@ def _format_optional_latency(latency_ms: Optional[float]) -> str:
 
 
 def _format_detection(detection: Detection) -> str:
-    result = f"{detection.class_name}:{detection.region.lower()}:{detection.confidence:.2f}"
-    if detection.median_depth_m is not None:
-        result += f":{_format_optional_distance(detection.median_depth_m)}"
-        if detection.depth_uncertainty_m is not None:
-            result += f"+/-{_format_optional_distance(detection.depth_uncertainty_m)}"
-    return result
+    return f"{detection.class_name}:{detection.region.lower()}:{detection.confidence:.2f}"
