@@ -1,10 +1,10 @@
 # Haptos CV
 
-Laptop-testable computer vision subsystem for **Haptos**, an embedded wearable navigation system.
+Computer vision and LiDAR subsystem for **Haptos**, an embedded wearable navigation system running on a Raspberry Pi 5.
 
-This module reads frames from a webcam or video file, runs a lightweight Ultralytics YOLO model, maps detections into `LEFT`, `CENTER`, and `RIGHT` image regions, and reads serial LiDAR scans for distance sensing. The camera is classification/region only; LiDAR is the sole source of metric range.
+The binocular camera feeds a lightweight Ultralytics YOLO model that maps detections into `LEFT`, `CENTER`, and `RIGHT` image regions. Only one image stream is used for this; the camera produces no depth. A 2D LiDAR (LDROBOT STL-19P, sold as Dxtvate D500) is the sole source of distance.
 
-No GPIO-specific code is included. LiDAR integration uses a serial port so the sensor driver can run on the host computer, microcontroller, or embedded platform.
+The Pi drives every sensor and output directly: the LiDAR over USB-serial, the camera, and planned tilt servo, haptic driver, and speaker. There is no separate wristband board.
 
 ## Project Layout
 
@@ -18,8 +18,9 @@ main.py
 docs/
   research.md
   roadmap.md
-firmware/           # placeholder for future CPU/wristband firmware
+firmware/           # placeholder, no code yet
 scripts/
+  lidar_raw_test.py # standalone LiDAR packet check, no haptos imports
   train_detector.py
 haptos/
   config.py
@@ -27,15 +28,17 @@ haptos/
   cv/
     camera.py
     detector.py
+    geometry.py
     postprocess.py
     utils.py
   fusion/
     hazard_decision.py
   sensor/
+    ld19_reader.py    # binary LD19/STL-19P reader (not yet wired into main.py)
     lidar_buffer.py
     lidar_filter.py
-    lidar_reader.py
-  feedback/          # placeholder for future haptic/audio output logic
+    lidar_reader.py   # legacy text-format reader
+  feedback/           # placeholder for planned Pi-side haptic/audio output
 tests/
   cv/
   fusion/
@@ -115,24 +118,39 @@ Copy the exported model directory to the Pi, then run:
 python main.py \
   --source picamera0 \
   --lidar-source serial \
-  --lidar-port /dev/ttyUSB0 \
+  --lidar-port /dev/lidar \
   --backend ncnn \
   --model yolov8n_ncnn_model \
   --conf 0.25 \
   --fps 8
 ```
 
+`--lidar-source serial` currently uses the legacy text-format reader, so it will not
+work with the STL-19P's binary output. The LD19 reader in `haptos/sensor/ld19_reader.py`
+is written but not yet wired into `create_lidar_reader()`; until it is, check the
+sensor directly with the standalone script below.
+
 `--emergency-stop-distance-m 0.8` forces `STOP` for a trusted near LiDAR
 return, regardless of what the camera sees.
 
-Run with a serial-connected LiDAR:
+### Checking the LiDAR on the Pi
+
+The STL-19P is a continuously spinning sensor, so each printed `angle` is the
+direction of one laser sample at that instant, not a fixed orientation. Expect the
+angle to cycle through 0–360° repeatedly. Use `--print-interval` to slow the output
+down for reading; serial is still read continuously underneath.
 
 ```bash
-python -m serial.tools.list_ports
-python main.py --source webcam --lidar-source serial --lidar-port COM5 --lidar-baudrate 115200
+python3 scripts/lidar_raw_test.py --port /dev/lidar --print-interval 0.2
 ```
 
-The serial LiDAR reader expects one 2D sample per line:
+`/dev/lidar` is a udev symlink to the CP2102 USB-serial adapter (see the
+`99-lidar.rules` setup notes in `docs/roadmap.md`). Zero-distance points with
+intensity 0 are invalid returns, not objects at zero range.
+
+### Legacy text-format LiDAR input
+
+The text reader expects one 2D sample per line:
 
 ```text
 angle_deg,distance_mm,quality
@@ -146,9 +164,11 @@ The quality field is optional. These are also accepted:
 12.5;840
 ```
 
-A line containing `SCAN`, `START`, or `END` marks a scan boundary. This format is intended for a LiDAR vendor SDK or microcontroller layer that converts the sensor's native protocol into simple serial samples.
+A line containing `SCAN`, `START`, or `END` marks a scan boundary. This format
+is for a vendor driver or microcontroller that converts the sensor's native
+protocol; it is not used by the STL-19P directly.
 
-Run LiDAR-only unit tests:
+Run LiDAR unit tests:
 
 ```bash
 python -m unittest tests.sensor.test_lidar
@@ -210,8 +230,8 @@ courses before relying on haptic output.
 3. Measure rough latency and FPS.
    Run with `--show` for visual debugging, then without `--show` for a cleaner FPS estimate. Review printed FPS and JSONL logs.
 
-4. Test LiDAR serial input.
-   Confirm that the LiDAR driver outputs angle/distance samples, filtered point counts are nonzero for nearby objects, and nearest distance changes when obstacles move.
+4. Test LiDAR input.
+   Confirm with `scripts/lidar_raw_test.py` that the STL-19P produces readings, then confirm that filtered point counts are nonzero for nearby objects and nearest distance changes when obstacles move.
 
 ## Raspberry Pi Notes
 
@@ -223,3 +243,7 @@ combined draw exceeds the Pi's peripheral budget.
 Run without `--show` on the wearable. Prefer the NCNN nano model and cap
 processing with `--fps` while measuring latency, temperature, throttling, and
 missed detections.
+
+`requirements-pi.txt` currently lists `numpy`, `pyserial`, and `ncnn`. `opencv-python`
+(imported by `haptos/cv/camera.py`) and `picamera2` are not listed and need to be
+addressed before a clean install.

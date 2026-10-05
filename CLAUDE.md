@@ -37,7 +37,6 @@ Press `q` to quit the display window. `Ctrl+C` exits cleanly with code 130.
 
 ```bash
 # Run the test suite (unittest-style tests, no venv needed for most — pure Python logic)
-# -t . is required: without it, tests/scripts/ collides with the top-level scripts/ package
 python -m unittest discover -s tests -t .
 # or, if pytest is installed (no extra flags needed):
 pytest tests/
@@ -45,7 +44,7 @@ pytest tests/
 
 ## Architecture
 
-**Target architecture: mono camera for classification/region only + LiDAR as the sole source of metric range.** Stereo depth (dual cameras, disparity/depth estimation, per-object depth smoothing) was removed from this codebase — see "Current Status & Open Work" below for why. Camera detections carry a `region` (LEFT/CENTER/RIGHT) and `is_obstacle` flag but no distance; LiDAR range is the only trusted distance signal.
+**Target architecture: mono camera for classification/region only + LiDAR as the sole source of metric range.** Stereo depth (dual cameras, disparity/depth estimation, per-object depth smoothing) was removed from this codebase — see "Current Status & Open Work" below for why. The camera is binocular hardware, but only feeds region classification: it uses one image stream, produces no depth, and camera detections carry a `region` (LEFT/CENTER/RIGHT) and `is_obstacle` flag but no distance. LiDAR range is the only depth signal; tilting the LiDAR is how it becomes 3D.
 
 The pipeline is a straight-line data flow that merges two independent sensing channels — camera and LiDAR — at the end:
 
@@ -77,16 +76,21 @@ Key design decisions to preserve:
 
 ## Current Status & Open Work
 
-**Done:** YOLO detection (Ultralytics + NCNN backends) → LEFT/CENTER/RIGHT region mapping → obstacle flagging; 2D serial-LiDAR ingestion with range/quality filtering; a fusion layer (`fusion/hazard_decision.py`) that lets a trusted near LiDAR return override the region-only command; JSONL logging of the `FrameResult` schema. This is well ahead of what `docs/roadmap.md`'s Phase 3/4 describe (it assumed a single-point ultrasonic/IR sensor) — treat the code, not that doc, as authoritative for how sensing/fusion actually works.
+**Done:** YOLO detection (Ultralytics + NCNN backends) → LEFT/CENTER/RIGHT region mapping → obstacle flagging; 2D LiDAR ingestion with range/quality filtering. The text-format reader (`sensor/lidar_reader.py`, `angle,distance,quality` lines) is legacy; the binary LDROBOT LD19 / STL-19P reader (`sensor/ld19_reader.py`) is written and returns the same `RawLidarScan`, but is not yet wired into `create_lidar_reader()` or covered by unit tests. A fusion layer (`fusion/hazard_decision.py`) that lets a trusted near LiDAR return override the region-only command; JSONL logging of the `FrameResult` schema. This is well ahead of what `docs/roadmap.md`'s Phase 3/4 describe (it assumed a single-point ultrasonic/IR sensor) — treat the code, not that doc, as authoritative for how sensing/fusion actually works.
 
 **Removed:** stereo camera depth (dual-camera capture/sync, `StereoDepthEstimator` disparity/depth estimation, per-detection depth smoothing, stereo calibration scripts) was implemented and working, but has been deliberately removed. The target architecture is mono camera (classification/region only) + a tilt-swept 2D LiDAR (all metric ranging, see "Active goal" below) — LiDAR is the more trustworthy range source (doesn't degrade on textureless/low-light surfaces, doesn't burn CPU on disparity matching each frame), so stereo's dual-camera sync/calibration complexity is no longer needed. If this is ever revisited, the removed code is in git history on this branch prior to the removal commit.
+
+**Hardware:** a Raspberry Pi 5 is the only computer. It drives the STL-19P LiDAR (USB-serial, `/dev/lidar` via a udev symlink), the binocular camera, the tilt servo (planned), the haptic driver (DRV2605L over I2C, planned), and the speaker (planned). There is no separate wristband board. Audio output (TTS vs tones) is undecided.
 
 **Not yet started** (see `docs/roadmap.md` Phase 1 remaining and `docs/research.md` for option tradeoffs):
 - Path boundary / walkable-surface detection (sidewalk edges).
 - Surface hazard detection (curbs, steps).
 - Low-light fault detection (spec F5).
 - A latency benchmarking script (spec F4, target <300ms end-to-end).
-- `haptos/feedback/` (wristband firmware) and `firmware/` (CPU/decision firmware) are empty placeholders — no code yet.
+- Wiring the LD19 reader into the pipeline, tilt servo control, haptic driver code, and speaker output.
+- `haptos/feedback/` (planned Pi-side haptic/audio output) and `firmware/` are empty placeholders — no code yet.
+
+`requirements-pi.txt` does not list `opencv-python` (which `haptos/cv/camera.py` imports) or `picamera2` (also imported by `camera.py`); both need to be addressed for a clean Pi install.
 
 **Active goal — 2D LiDAR → 3D reconstruction:** build a 3D point cloud from the existing 2D LiDAR by physically tilting the sensor up and down (a nodding/push-broom style scanner) and accumulating scans taken at each tilt angle over time, rather than swapping in true 3D LiDAR hardware. The 2D LiDAR already sweeps azimuth internally (each scan already carries multiple `angle_deg` samples); the new motor axis is elevation/tilt, not a second azimuth sweep. Suggested phasing:
 - **Phase 0 (no new hardware):** the fusion layer currently only reads `LidarFrameSummary.nearest_distance_m` — nearest point across the *whole* scan, angle discarded — even though `FilteredLidarFrame.points_xyz`/`.angles_rad` already retain every point. Add an angle-aware occupancy check (e.g. nearest distance within a walking-corridor arc) before building on top of this in 3D.
@@ -99,6 +103,6 @@ Key design decisions to preserve:
 
 ## Planned integration surface
 
-`FrameResult.to_dict()` is the output contract for anything downstream (wristband firmware, logging, future 3D reconstruction). Keep the schema stable; add fields rather than renaming existing ones.
+`FrameResult.to_dict()` is the output contract for anything downstream (Pi-side haptic and audio output, logging, future 3D reconstruction). Keep the schema stable; add fields rather than renaming existing ones.
 
 For Raspberry Pi deployment: use `requirements-pi.txt`, the NCNN detector backend, and drop `--show` (no display). The rest of the pipeline is Pi-compatible as written.

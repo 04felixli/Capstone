@@ -1,6 +1,6 @@
 # Research Topics
 
-Organized by which roadmap phase they unblock. Each topic has a concrete decision that needs to come out of it.
+Organized by which roadmap phase they unblock. Each open topic has a concrete decision that still needs to come out of it. Closed topics are kept briefly so the reasoning isn't lost.
 
 ---
 
@@ -12,28 +12,27 @@ The current pipeline detects discrete objects but not the walkable surface bound
 Options to evaluate:
 - **Semantic segmentation** (e.g., DeepLabV3+, SegFormer-B0) — labels each pixel as road/sidewalk/obstacle. Accurate but slower than detection models. Check if a TFLite or NCNN export fits Pi latency budget.
 - **Lane/edge-line detection** (e.g., LaneATT, UFLDv2) — originally for driving but applicable to sidewalk edge detection. Much faster than full segmentation.
-- **Depth estimation** (e.g., MiDaS, Depth Anything v2 Small) — infer relative depth from monocular camera; walkable surface appears as a consistent flat plane. Useful for step/curb detection.
+- **Depth estimation** (e.g., MiDaS, Depth Anything v2 Small) — infer relative depth from the camera image; walkable surface appears as a consistent flat plane. Useful for step/curb detection. Note: the project's metric depth comes from the LiDAR, so monocular depth would only be a cue for path shape, not a range source.
 
-**Decision needed:** Pick one approach (or a hybrid) that runs within the latency budget on Pi. Benchmark each candidate before committing.
+**Decision needed:** Pick one approach (or a hybrid) that runs within the latency budget on the Pi 5. Benchmark each candidate before committing.
 
 ### Surface Hazard Detection (curbs, steps, potholes)
 Object detection models trained on COCO don't include these classes. Options:
 
 - **Fine-tune YOLOv8n** on a small custom dataset of curbs/steps. Needs labelled data — look at open datasets: EgoPath, Mapillary Vistas (has sidewalk/curb labels), or collect your own.
-- **Depth + slope heuristic** — if using depth estimation above, large depth discontinuities at the base of the frame indicate a step or curb.
+- **LiDAR ground-plane heuristic** — once the tilt sweep (Phase 4) produces 3D points, a drop or rise in the ground height ahead indicates a step or curb. This uses the metric range the project already has.
 - **Floor-plane homography** — project the ground plane and flag deviations. Works well for indoor steps, less robust outdoors.
 
-**Decision needed:** Whether to label a small custom dataset or derive hazards from depth cues. Custom labelling is more accurate; depth inference is more generalizable.
+**Decision needed:** Whether to label a small custom dataset, rely on the LiDAR ground-plane cue, or both.
 
 ### Model Export and Pi Optimization
-YOLOv8n in PyTorch is not the fastest path on Pi. Research the export pipeline:
+YOLOv8n in PyTorch is not the fastest path on the Pi. The current export path is NCNN (`yolo export format=ncnn`), which `README.md` and `CLAUDE.md` use. Remaining work:
 
-- `model.export(format='ncnn')` — NCNN runs well on ARM without GPU. Compare latency vs PyTorch.
-- `model.export(format='tflite', int8=True)` — quantized TFLite for Pi. Needs a calibration dataset.
-- `model.export(format='onnx')` then run with ONNXRuntime — good portability.
-- Pi 5 has more CPU headroom than Pi 4; confirm which hardware you're targeting before benchmarking.
+- Benchmark NCNN latency on the Pi 5 against the 300 ms budget.
+- `model.export(format='tflite', int8=True)` — quantized TFLite for Pi. Needs a calibration dataset. Only pursue if NCNN misses the budget.
+- `model.export(format='onnx')` then run with ONNXRuntime — good portability, not currently planned.
 
-**Decision needed:** Which export format to use as the production model on Pi.
+**Decision needed:** Confirm NCNN meets the latency budget on the Pi 5; if not, which fallback to try.
 
 ### Low-Light / Fault Detection
 Spec F5 requires detecting "dim lighting" as a fault condition.
@@ -46,20 +45,43 @@ Spec F5 requires detecting "dim lighting" as a fault condition.
 
 ---
 
+## Camera Hardware (Phase 2)
+
+### Binocular Camera Module and Lens
+The camera is binocular hardware, but it is used for region classification only. Stereo depth is out of scope: the LiDAR provides all range, and the stereo pipeline was removed from this codebase.
+
+Open questions:
+- Which of the two image streams feeds the detector, and whether the other is used at all.
+- Field of view. A wider lens captures more lateral context for GO_LEFT/GO_RIGHT decisions, but needs the region thresholds rechecked.
+
+**Decision needed:** Which lens/stream is the region input, and the field of view for the region split.
+
+### Camera Mounting Position
+Where the camera sits determines what it sees:
+
+- **Chest-mounted** — stable, covers ~1–3 m in front, natural forward view. Standard for navigation aids research.
+- **Head/glasses-mounted** — follows gaze direction, but more movement noise and less stable mounting.
+
+**Decision needed:** Chest mount for prototype (simpler, more stable). Document mount height for consistent test conditions.
+
+---
+
 ## 2D LiDAR Sensing (Phase 3 — largely resolved)
 
-The single-point ultrasonic/IR sensor plan this section used to describe (HC-SR04 vs VL53L1X, multi-sensor array layout) was superseded: a 2D serial LiDAR was selected and implemented instead (`sensor/lidar_reader.py`, `sensor/lidar_filter.py`), since it gives per-angle range data across the whole scan rather than one scalar per sensor, at the same 0.3–2.0 m range spec F1 requires. Treat the code as authoritative here; the open research has moved on to reconstructing 3D structure from that 2D scan (below).
+The sensor is an LDROBOT STL-19P (sold as Dxtvate D500): a 360° 2D LiDAR with 12 m rated range, outputting binary packets at 230400 baud over a CP2102 USB-serial adapter. It is read by `sensor/ld19_reader.py`. The earlier text-format reader (`sensor/lidar_reader.py`) expects a vendor or microcontroller bridge and is being retired.
+
+The single-point ultrasonic/IR sensor plan was superseded because a 2D LiDAR gives per-angle range data across the whole scan rather than one scalar per sensor, at the 0.3–2.0 m range spec F1 requires.
 
 ## 2D LiDAR → 3D Reconstruction (Phase 4)
 
-**Active goal.** The 2D LiDAR sweeps azimuth internally already; the plan is to add elevation by physically tilting the sensor up and down (a nodding/push-broom scanner) and accumulating scans by tilt angle over time, rather than buying true 3D LiDAR hardware.
+**Active goal.** The 2D LiDAR sweeps azimuth internally already; elevation is added by tilting the sensor up and down with a servo (a nodding/push-broom scanner), accumulating scans by tilt angle over time, rather than buying true 3D LiDAR hardware.
 
-### Tilt Hardware Selection
-- Servo vs stepper for the tilt axis — a stepper gives repeatable absolute angle without feedback wiring; a hobby servo is simpler to drive but less precise at the edges of its range.
-- Sweep range and speed: how many degrees of tilt actually matter for a walking corridor (ground-to-head height at ~1–2 m), and how slow can the sweep be before it lags obstacle detection unacceptably.
-- Where the tilt interface lives: `set_tilt_angle()`/`get_tilt_angle()` need to report actual (not just commanded) angle if the motor can stall or lag.
+### Tilt Hardware
+- **Decided:** servo, not stepper. A hobby servo is simpler to drive; the trade-off is precision near the ends of its range.
+- Sweep range and speed: how many degrees of tilt actually matter for a walking corridor (ground-to-head height at ~1–2 m), and how slow the sweep can be before it lags obstacle detection unacceptably.
+- The tilt interface (`set_tilt_angle()`/`get_tilt_angle()`) should report actual (not just commanded) angle if the servo can stall or lag. Hobby servos usually have no position feedback, so this may need a measured or calibrated mapping instead.
 
-**Decision needed:** Servo vs stepper, and the tilt sweep range/rate to target for Phase 1.
+**Decision needed:** Tilt sweep range and rate to target for Phase 1, and how to confirm the actual angle.
 
 ### Point Cloud Accumulation Strategy
 A full tilt sweep is much slower than the camera loop, so the point cloud has to be built incrementally rather than waiting for a complete sweep each time.
@@ -94,41 +116,36 @@ Only needed once 3D corridor occupancy is feeding fusion and there's a reason to
 ## Sensor Fusion (Phase 4)
 
 ### Fusion Strategy
-`fusion/hazard_decision.py` already implements the rule-based approach this section used to propose as a research question: a trusted LiDAR return at or below `emergency_stop_distance_m` (0.8 m by default, `HAZARD_DEFAULT_EMERGENCY_STOP_DISTANCE_M` in `config.py`) forces STOP; otherwise the camera's region-only logic (`generate_navigation_hint()`) decides. Remaining open question is whether this stays sufficient once LiDAR carries 3D corridor occupancy instead of a single nearest-distance scalar:
+`fusion/hazard_decision.py` implements the rule-based approach: a trusted LiDAR return at or below `emergency_stop_distance_m` (0.8 m by default, `HAZARD_DEFAULT_EMERGENCY_STOP_DISTANCE_M` in `config.py`) forces STOP; otherwise the camera's region-only logic (`generate_navigation_hint()`) decides. The open question is whether this stays sufficient once LiDAR carries 3D corridor occupancy instead of a single nearest-distance scalar:
 
 - **Confidence-weighted voting** — weight each source by its confidence score. More flexible but requires calibrated confidence values.
 - **Kalman filter** — model obstacle position as a state; fuse CV detections and LiDAR readings as noisy measurements. Overkill for MVP but useful if smooth directional estimates over time become necessary.
 
 **Decision needed:** Whether the flat threshold still holds once `generate_fused_navigation_hint()` consumes corridor occupancy (Phase 4 above) instead of `nearest_distance_m`, or whether it needs to become angle/region-aware too.
 
-### Inter-Subsystem Communication Protocol
-How does the CV module (Pi) talk to the wristband firmware?
-
-- **Wired UART** — simple, reliable, low latency, no pairing required. Good choice if both devices are on the same physical assembly.
-- **BLE (Bluetooth Low Energy)** — wireless, but adds pairing complexity and ~10–50 ms latency overhead. Necessary if the wristband is genuinely separate from the CPU.
-- **I2C / SPI** — only practical if wristband MCU is on the same board or very short cable.
-
-**Decision needed:** Wired vs wireless between CPU and wristband. Pick wired UART for the prototype to eliminate a variable; revisit for final product.
+### Inter-Subsystem Communication (closed)
+Previously an open question (wired UART vs BLE to a wristband). Closed: the Pi drives the LiDAR, camera, and haptic driver directly, with no separate wristband board, so no inter-board protocol is needed.
 
 ---
 
-## Haptic Feedback (Phase 5)
+## Haptic and Audio Feedback (Phase 5)
 
 ### Vibration Pattern Design
 Research shows users can reliably distinguish 4–6 distinct haptic patterns when the differences are in duration and rhythm rather than intensity alone.
 
 - Look at prior work: "Tacton" pattern design principles (Brown et al.) — rhythm and envelope matter more than intensity.
 - Recommended pattern set to test: single short pulse (FORWARD/clear), double pulse (GO_LEFT), double pulse offset (GO_RIGHT), continuous (STOP), long single (fault/warning).
-- Test distinguishability with 5–10 people without looking at the wristband.
+- Test distinguishability with 5–10 people without looking at the device.
+- Driver: DRV2605L over I2C from the Pi.
 
-**Decision needed:** Final pattern set. Run recognition trials before finalizing firmware (otherwise you'll flash firmware multiple times).
+**Decision needed:** Final pattern set. Run recognition trials before finalizing the pattern code.
 
 ### Audio Cue Approach
-Spec mentions audio as a parallel feedback channel.
+Spec mentions audio as a parallel feedback channel. Open.
 
 - Earpiece vs. bone conduction — bone conduction keeps the user's ears open to ambient sound, which is safer for navigation.
-- Simple tones (beeps with distinct pitch/rhythm) vs. speech ("turn left") — speech is intuitive but requires TTS compute; tones are fast and offline.
-- Audio as primary or backup — given the spec's language ("haptic and audio"), plan for audio as the redundant channel if vibration patterns are ambiguous.
+- Simple tones (beeps with distinct pitch/rhythm) vs. speech ("object 2 meters ahead") — speech is intuitive but requires TTS compute; tones are fast and offline. The plan leans toward speech with espeak or pyttsx3, but the decision is deferred.
+- Audio as primary or backup — plan for audio as the redundant channel if vibration patterns are ambiguous.
 
 **Decision needed:** Tone-based vs TTS, and earpiece vs bone conduction.
 
@@ -136,17 +153,5 @@ Spec mentions audio as a parallel feedback channel.
 
 ## Hardware Platform (cross-cutting)
 
-### Raspberry Pi Model
-- Pi 4 (4GB) is well-supported by Ultralytics and OpenCV. Pi 5 is faster but newer — check Ultralytics compatibility before committing.
-- Pi Zero 2W is too slow for real-time YOLOv8 inference.
-- Pi Camera Module 3 (12 MP, autofocus) or Camera Module 3 Wide (120° FoV) — wider FoV captures more lateral context for GO_LEFT/GO_RIGHT decisions.
-
-**Decision needed:** Pi 4 vs Pi 5, and which camera module. Wide-angle lens is likely worth it.
-
-### Camera Mounting Position
-Where the camera sits determines what it sees:
-
-- **Chest-mounted** — stable, covers ~1–3 m in front, natural forward view. Standard for navigation aids research.
-- **Head/glasses-mounted** — follows gaze direction, but more movement noise and less stable mounting.
-
-**Decision needed:** Chest mount for prototype (simpler, more stable). Document mount height for consistent test conditions.
+### Raspberry Pi Model (closed)
+Raspberry Pi 5 selected. It runs the detector, LiDAR, haptic driver, and speaker. Benchmarking against the latency budget is still in Phase 2.
