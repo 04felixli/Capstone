@@ -1,6 +1,6 @@
 # Haptos Development Roadmap
 
-Haptos is a single Raspberry Pi 5 that drives every sensor and output: a binocular camera (region classification only), an STL-19P 2D LiDAR (the sole source of depth, tilted by a servo for 3D), a DRV2605L haptic driver, and a speaker. There is no separate wristband board. Software runs as standalone Python on the Pi; ROS2 is not used.
+Haptos is a single Raspberry Pi 5 that drives every sensor and output: a binocular camera (region classification only), an STL-19P 2D LiDAR (the sole source of depth, tilted by a servo for 3D), a DRV2605L haptic driver, and a speaker. Software runs as standalone Python on the Pi; ROS2 is not used.
 
 The roadmap below is sequenced so each phase produces a testable artifact before the next phase begins.
 
