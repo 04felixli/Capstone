@@ -76,7 +76,7 @@ Key design decisions to preserve:
 
 ## Current Status & Open Work
 
-**Done:** YOLO detection (Ultralytics + NCNN backends) → LEFT/CENTER/RIGHT region mapping → obstacle flagging; 2D LiDAR ingestion with range/quality filtering. The text-format reader (`sensor/lidar_reader.py`, `angle,distance,quality` lines) is legacy; the binary LDROBOT LD19 / STL-19P reader (`sensor/ld19_reader.py`) is written and returns the same `RawLidarScan`, but is not yet wired into `create_lidar_reader()` or covered by unit tests. A fusion layer (`fusion/hazard_decision.py`) that lets a trusted near LiDAR return override the region-only command; JSONL logging of the `FrameResult` schema. This is well ahead of what `docs/roadmap.md`'s Phase 3/4 describe (it assumed a single-point ultrasonic/IR sensor) — treat the code, not that doc, as authoritative for how sensing/fusion actually works.
+**Done:** YOLO detection (Ultralytics + NCNN backends) → LEFT/CENTER/RIGHT region mapping → obstacle flagging; 2D LiDAR ingestion with range/quality filtering. The legacy text-format reader (`sensor/lidar_reader.py`, `angle,distance,quality` lines) has been removed. `--lidar-source serial` now builds an `Ld19Reader` (`sensor/ld19_reader.py`), which speaks the LDROBOT LD19/STL-19P binary protocol directly and returns one full 360° rotation per `read()` as a `RawLidarScan`. There is no CRC check on packets — only the header/verlen bytes are validated, so an occasional corrupted packet is accepted as-is rather than dropped; this is an accepted tradeoff, not an oversight. Covered by `tests/sensor/test_lidar.py` (packet angle interpolation, scan-wrap splitting). A fusion layer (`fusion/hazard_decision.py`) that lets a trusted near LiDAR return override the region-only command; JSONL logging of the `FrameResult` schema. This is well ahead of what `docs/roadmap.md`'s Phase 3/4 describe (it assumed a single-point ultrasonic/IR sensor) — treat the code, not that doc, as authoritative for how sensing/fusion actually works.
 
 **Removed:** stereo camera depth (dual-camera capture/sync, `StereoDepthEstimator` disparity/depth estimation, per-detection depth smoothing, stereo calibration scripts) was implemented and working, but has been deliberately removed. The target architecture is mono camera (classification/region only) + a tilt-swept 2D LiDAR (all metric ranging, see "Active goal" below) — LiDAR is the more trustworthy range source (doesn't degrade on textureless/low-light surfaces, doesn't burn CPU on disparity matching each frame), so stereo's dual-camera sync/calibration complexity is no longer needed. If this is ever revisited, the removed code is in git history on this branch prior to the removal commit.
 
@@ -87,7 +87,8 @@ Key design decisions to preserve:
 - Surface hazard detection (curbs, steps).
 - Low-light fault detection (spec F5).
 - A latency benchmarking script (spec F4, target <300ms end-to-end).
-- Wiring the LD19 reader into the pipeline, tilt servo control, haptic driver code, and speaker output.
+- A read timeout for `Ld19Reader.read()` (it currently blocks forever if the sensor goes silent).
+- Tilt servo control, haptic driver code, and speaker output.
 - `haptos/feedback/` (planned Pi-side haptic/audio output) and `firmware/` are empty placeholders — no code yet.
 
 `requirements-pi.txt` does not list `opencv-python` (which `haptos/cv/camera.py` imports) or `picamera2` (also imported by `camera.py`); both need to be addressed for a clean Pi install.

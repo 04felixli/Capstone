@@ -34,10 +34,9 @@ haptos/
   fusion/
     hazard_decision.py
   sensor/
-    ld19_reader.py    # binary LD19/STL-19P reader (not yet wired into main.py)
+    ld19_reader.py    # binary LD19/STL-19P reader, wired into main.py via --lidar-source serial
     lidar_buffer.py
     lidar_filter.py
-    lidar_reader.py   # legacy text-format reader
   feedback/           # placeholder for planned Pi-side haptic/audio output
 tests/
   cv/
@@ -125,10 +124,11 @@ python main.py \
   --fps 8
 ```
 
-`--lidar-source serial` currently uses the legacy text-format reader, so it will not
-work with the STL-19P's binary output. The LD19 reader in `haptos/sensor/ld19_reader.py`
-is written but not yet wired into `create_lidar_reader()`; until it is, check the
-sensor directly with the standalone script below.
+`--lidar-source serial` builds an `Ld19Reader` (`haptos/sensor/ld19_reader.py`), which
+speaks the STL-19P's binary protocol directly at 230400 baud. There is no CRC check on
+packets, so an occasional corrupted packet is accepted rather than dropped; that's an
+accepted tradeoff for this application. If you want to sanity-check the sensor itself
+before running the full pipeline, use the standalone script below.
 
 `--emergency-stop-distance-m 0.8` forces `STOP` for a trusted near LiDAR
 return, regardless of what the camera sees.
@@ -147,26 +147,6 @@ python3 scripts/lidar_raw_test.py --port /dev/lidar --print-interval 0.2
 `/dev/lidar` is a udev symlink to the CP2102 USB-serial adapter (see the
 `99-lidar.rules` setup notes in `docs/roadmap.md`). Zero-distance points with
 intensity 0 are invalid returns, not objects at zero range.
-
-### Legacy text-format LiDAR input
-
-The text reader expects one 2D sample per line:
-
-```text
-angle_deg,distance_mm,quality
-```
-
-The quality field is optional. These are also accepted:
-
-```text
-12.5,840,15
-12.5 840 15
-12.5;840
-```
-
-A line containing `SCAN`, `START`, or `END` marks a scan boundary. This format
-is for a vendor driver or microcontroller that converts the sensor's native
-protocol; it is not used by the STL-19P directly.
 
 Run LiDAR unit tests:
 

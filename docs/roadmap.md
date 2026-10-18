@@ -46,22 +46,20 @@ Remaining:
 
 ---
 
-## Phase 3 — 2D LiDAR Sensing and Fusion (largely done; wiring remains)
+## Phase 3 — 2D LiDAR Sensing and Fusion (done except fault states)
 
 **Goal:** Produce a range reading layer with the same output contract as the CV module.
 
 The single-point ultrasonic/IR sensor plan was superseded by a 2D LiDAR, which gives per-angle data across a scan and covers spec F1's 0.3–2.0 m range. Already done:
-- `sensor/ld19_reader.py` — binary LD19 / STL-19P packet reader that returns one full 360° scan per `read()` as a `RawLidarScan`. Written, not yet committed, and not yet wired into `main.py`.
+- `sensor/ld19_reader.py` — binary LD19 / STL-19P packet reader that returns one full 360° scan per `read()` as a `RawLidarScan`. Wired into `create_lidar_reader()` and `main.py` via `--lidar-source serial`. No CRC check: only the header/verlen bytes are validated, so an occasional corrupted packet is accepted rather than dropped — an accepted tradeoff, since losing a few points at the edges is fine for this application.
 - `sensor/lidar_filter.py` — range/quality filtering into `FilteredLidarFrame`, including fault state for a scan with no valid points.
 - `sensor/lidar_buffer.py` — short rolling history of filtered frames by timestamp.
 - `fusion/hazard_decision.py` — rule-based fusion: a trusted LiDAR return at or below `emergency_stop_distance_m` forces STOP, otherwise camera region logic decides.
-- `sensor/lidar_reader.py` — legacy text-format reader (`angle_deg,distance_mm,quality` lines). Not used by the STL-19P; to be removed when `create_lidar_reader()` switches to the LD19 reader.
+- Unit tests for the LD19 reader (`tests/sensor/test_lidar.py`): packet angle interpolation and scan-splitting on angle wrap-around, including that invalid (zero-distance) points get filtered out downstream.
+- The legacy text-format reader (`sensor/lidar_reader.py`) has been removed.
 
 Remaining:
-- [ ] Wire `Ld19Reader` into `create_lidar_reader()` and `main.py` as the serial LiDAR source, and retire the text-format reader with its tests.
-- [ ] Add unit tests for the LD19 reader using a captured packet fixture: angle math, scan split on angle wrap-around, and zero-distance points being filtered.
-- [ ] Add CRC checking for LD19 packets (the reader currently accepts any packet with the correct header bytes).
-- [ ] Add a read timeout so `Ld19Reader.read()` returns or faults when the sensor is disconnected, instead of blocking.
+- [ ] Add a read timeout so `Ld19Reader.read()` returns or faults when the sensor is disconnected, instead of blocking forever.
 - [ ] Validate 0.3 m to 2.0 m detection range (spec F1) with physical measurements against the LiDAR.
 - [ ] Implement remaining fault states beyond "no valid points" (spec F5): sensor disconnected/timeout, low battery, CV pipeline error, dim lighting.
 

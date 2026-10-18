@@ -15,8 +15,6 @@ from haptos.config import (
     DETECTOR_BACKEND_NCNN,
     DETECTOR_BACKEND_ULTRALYTICS,
     LIDAR_DEFAULT_BAUDRATE,
-    LIDAR_DEFAULT_MIN_SAMPLES,
-    LIDAR_DEFAULT_SCAN_TIMEOUT_S,
     LIDAR_SOURCE_NONE,
     LIDAR_SOURCE_SERIAL,
     HAZARD_DEFAULT_EMERGENCY_STOP_DISTANCE_M,
@@ -26,7 +24,7 @@ from haptos.cv.utils import FPSCounter, JsonlLogger, draw_overlay, format_consol
 from haptos.fusion.hazard_decision import generate_fused_navigation_hint
 from haptos.sensor.lidar_buffer import LidarFrameBuffer
 from haptos.sensor.lidar_filter import filter_lidar_scan
-from haptos.sensor.lidar_reader import create_lidar_reader
+from haptos.sensor.ld19_reader import create_lidar_reader
 from haptos.types import FrameResult
 
 
@@ -70,18 +68,6 @@ def parse_args() -> argparse.Namespace:
         help="Serial baudrate for LiDAR data",
     )
     parser.add_argument(
-        "--lidar-scan-timeout",
-        type=float,
-        default=LIDAR_DEFAULT_SCAN_TIMEOUT_S,
-        help="Maximum seconds to collect samples for one LiDAR scan",
-    )
-    parser.add_argument(
-        "--lidar-min-samples",
-        type=int,
-        default=LIDAR_DEFAULT_MIN_SAMPLES,
-        help="Minimum samples needed before accepting a scan boundary",
-    )
-    parser.add_argument(
         "--lidar-buffer-size",
         type=int,
         default=10,
@@ -119,8 +105,6 @@ def main() -> int:
             source=args.lidar_source,
             port=args.lidar_port,
             baudrate=args.lidar_baudrate,
-            scan_timeout_s=args.lidar_scan_timeout,
-            min_samples=args.lidar_min_samples,
         )
         lidar_buffer = LidarFrameBuffer(args.lidar_buffer_size) if lidar_reader is not None else None
 
