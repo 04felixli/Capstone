@@ -29,6 +29,8 @@ LIDAR_MIN_DISTANCE_M = 0.3
 LIDAR_MAX_DISTANCE_M = 2.0
 LIDAR_MIN_QUALITY = 1
 LIDAR_DEFAULT_BAUDRATE = 230400  # LD19 / STL-19P default
+# Maximum time read() will wait for one full scan before raising TimeoutError.
+LIDAR_READ_TIMEOUT_S = 2.0
 
 # A first-pass list of COCO classes that can matter for wearable navigation.
 # This can become configurable as Haptos learns which objects are important.

@@ -9,8 +9,15 @@ import struct
 from haptos.config import LIDAR_FAULT_NO_VALID_POINTS, LIDAR_FAULT_NONE, LIDAR_SOURCE_NONE
 from haptos.sensor.lidar_buffer import LidarFrameBuffer
 from haptos.sensor.lidar_process import process_lidar_scan, polar_scan_to_xyz
-from haptos.sensor.ld19_reader import _ScanAccumulator, create_lidar_reader, parse_ld19_packet
+from haptos.sensor.ld19_reader import Ld19Reader, _ScanAccumulator, create_lidar_reader, parse_ld19_packet
 from haptos.types import RawLidarScan
+
+
+class _SilentSerial:
+    """Stand-in for a serial.Serial whose sensor has gone quiet: every read times out empty."""
+
+    def read(self, size: int) -> bytes:
+        return b""
 
 
 def _build_ld19_packet(start_angle_deg: float, end_angle_deg: float, distances_mm, intensity=200) -> bytes:
@@ -145,6 +152,24 @@ class CreateLidarReaderTests(unittest.TestCase):
     def test_unsupported_source_raises_before_opening_a_port(self):
         with self.assertRaises(ValueError):
             create_lidar_reader("bogus-source")
+
+
+class Ld19ReaderReadTimeoutTests(unittest.TestCase):
+    def _reader_with_silent_serial(self, read_timeout_s: float) -> Ld19Reader:
+        # Bypass __init__ (which opens a real pyserial port) and wire up a fake
+        # serial object directly, matching how a real Ld19Reader would be left
+        # once constructed.
+        reader = Ld19Reader.__new__(Ld19Reader)
+        reader._serial = _SilentSerial()
+        reader._accumulator = _ScanAccumulator()
+        reader._read_timeout_s = read_timeout_s
+        return reader
+
+    def test_read_raises_timeout_when_sensor_goes_silent(self):
+        reader = self._reader_with_silent_serial(read_timeout_s=0.05)
+
+        with self.assertRaises(TimeoutError):
+            reader.read()
 
 
 class LidarFrameBufferTests(unittest.TestCase):

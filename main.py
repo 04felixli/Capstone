@@ -133,12 +133,18 @@ def main() -> int:
             lidar_summary = None
 
             # 3. LiDAR: independent channel, read/filtered/summarized every loop
-            # iteration regardless of what the camera saw.
+            # iteration regardless of what the camera saw. A read failure (sensor
+            # silence/timeout, serial disconnect) must not take down the camera
+            # channel, so it's isolated here and just skips LiDAR for this frame.
             if lidar_reader is not None and lidar_buffer is not None:
-                raw_lidar_scan = lidar_reader.read()
-                processed_lidar = process_lidar_scan(raw_lidar_scan)
-                lidar_buffer.add(processed_lidar)
-                lidar_summary = processed_lidar.to_summary()
+                try:
+                    raw_lidar_scan = lidar_reader.read()
+                except Exception as exc:
+                    print(f"LiDAR read failed, skipping LiDAR for this frame: {exc}", file=sys.stderr)
+                else:
+                    processed_lidar = process_lidar_scan(raw_lidar_scan)
+                    lidar_buffer.add(processed_lidar)
+                    lidar_summary = processed_lidar.to_summary()
 
             # 4. Fusion: LiDAR near-range override, else camera region logic.
             command = generate_fused_navigation_hint(

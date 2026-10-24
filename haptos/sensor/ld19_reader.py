@@ -5,7 +5,12 @@ from typing import Optional
 
 import numpy as np
 
-from haptos.config import LIDAR_DEFAULT_BAUDRATE, LIDAR_SOURCE_NONE, LIDAR_SOURCE_SERIAL
+from haptos.config import (
+    LIDAR_DEFAULT_BAUDRATE,
+    LIDAR_READ_TIMEOUT_S,
+    LIDAR_SOURCE_NONE,
+    LIDAR_SOURCE_SERIAL,
+)
 from haptos.types import RawLidarScan
 
 LD19_PACKET_HEADER = 0x54
@@ -58,11 +63,19 @@ class Ld19Reader:
     """Read full 360-degree scans from an LD19-protocol LiDAR on a serial port."""
 
     # Open the serial port and set up the packet accumulator.
-    def __init__(self, port: str, baudrate: int = LIDAR_DEFAULT_BAUDRATE, serial_timeout_s: float = 0.5):
+    def __init__(
+        self,
+        port: str,
+        baudrate: int = LIDAR_DEFAULT_BAUDRATE,
+        serial_timeout_s: float = 0.5,
+        read_timeout_s: float = LIDAR_READ_TIMEOUT_S,
+    ):
         if not port:
             raise ValueError("A LiDAR serial port is required, for example /dev/lidar or COM5.")
         if baudrate <= 0:
             raise ValueError("LiDAR baudrate must be positive.")
+        if read_timeout_s <= 0:
+            raise ValueError("LiDAR read_timeout_s must be positive.")
 
         try:
             import serial
@@ -73,10 +86,16 @@ class Ld19Reader:
         self.baudrate = baudrate
         self._serial = serial.Serial(port=port, baudrate=baudrate, timeout=serial_timeout_s)
         self._accumulator = _ScanAccumulator()
+        self._read_timeout_s = read_timeout_s
 
-    # Keep reading packets until a full 360-degree scan has accumulated.
+    # Keep reading packets until a full 360-degree scan has accumulated, or give
+    # up once read_timeout_s has passed with no complete scan (e.g. sensor silence).
     def read(self) -> RawLidarScan:
+        started_at = time.monotonic()
         while True:
+            if time.monotonic() - started_at > self._read_timeout_s:
+                raise TimeoutError(f"No LiDAR scan received within {self._read_timeout_s}s.")
+
             packet = self._read_packet()
             if packet is None:
                 continue
@@ -133,11 +152,12 @@ def create_lidar_reader(
     source: str,
     port: Optional[str] = None,
     baudrate: int = LIDAR_DEFAULT_BAUDRATE,
+    read_timeout_s: float = LIDAR_READ_TIMEOUT_S,
 ) -> Optional[Ld19Reader]:
     """Create a LiDAR reader from CLI configuration."""
 
     if source == LIDAR_SOURCE_NONE:
         return None
     if source == LIDAR_SOURCE_SERIAL:
-        return Ld19Reader(port=port or "", baudrate=baudrate)
+        return Ld19Reader(port=port or "", baudrate=baudrate, read_timeout_s=read_timeout_s)
     raise ValueError(f"Unsupported LiDAR source: {source}")
