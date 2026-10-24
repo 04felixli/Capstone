@@ -7,6 +7,8 @@ DETECTOR_BACKEND_ULTRALYTICS = "ultralytics"
 DETECTOR_BACKEND_NCNN = "ncnn"
 
 HAZARD_DEFAULT_EMERGENCY_STOP_DISTANCE_M = 0.8
+# Half-width, in degrees, of the forward arc of "relevant" points used for the LiDAR emergency-stop check.
+HAZARD_DEFAULT_RELEVANT_HALF_ANGLE_DEG = 30.0
 
 LEFT_REGION = "LEFT"
 CENTER_REGION = "CENTER"

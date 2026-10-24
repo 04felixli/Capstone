@@ -22,12 +22,13 @@ class HazardDecisionTests(unittest.TestCase):
 
         self.assertEqual(command, "GO_RIGHT")
 
-    def test_stops_for_near_lidar_return(self):
+    def test_stops_for_near_lidar_return_that_is_relevant(self):
         lidar = LidarFrameSummary(
             timestamp_ms=100,
             fault_state="none",
             point_count=20,
             nearest_distance_m=0.5,
+            relevant_nearest_distance_m=0.5,
         )
 
         command = generate_fused_navigation_hint([], lidar)
@@ -40,9 +41,26 @@ class HazardDecisionTests(unittest.TestCase):
             fault_state="none",
             point_count=20,
             nearest_distance_m=1.5,
+            relevant_nearest_distance_m=1.5,
         )
 
         command = generate_fused_navigation_hint([], lidar, emergency_stop_distance_m=0.8)
+
+        self.assertEqual(command, "FORWARD")
+
+    def test_ignores_near_return_that_is_not_relevant(self):
+        # Something close is off to the side (e.g. a wall at 90 degrees) rather than ahead:
+        # the whole-scan nearest point is well within stopping range, but it isn't among
+        # the relevant forward points, so this must not force a STOP.
+        lidar = LidarFrameSummary(
+            timestamp_ms=100,
+            fault_state="none",
+            point_count=20,
+            nearest_distance_m=0.2,
+            relevant_nearest_distance_m=None,
+        )
+
+        command = generate_fused_navigation_hint([], lidar)
 
         self.assertEqual(command, "FORWARD")
 

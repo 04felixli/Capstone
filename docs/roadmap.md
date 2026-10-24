@@ -52,7 +52,7 @@ Remaining:
 
 The single-point ultrasonic/IR sensor plan was superseded by a 2D LiDAR, which gives per-angle data across a scan and covers spec F1's 0.3–2.0 m range. Already done:
 - `sensor/ld19_reader.py` — binary LD19 / STL-19P packet reader that returns one full 360° scan per `read()` as a `RawLidarScan`. Wired into `create_lidar_reader()` and `main.py` via `--lidar-source serial`. No CRC check: only the header/verlen bytes are validated, so an occasional corrupted packet is accepted rather than dropped — an accepted tradeoff, since losing a few points at the edges is fine for this application.
-- `sensor/lidar_filter.py` — range/quality filtering into `FilteredLidarFrame`, including fault state for a scan with no valid points.
+- `sensor/lidar_process.py` — range/quality filtering into `ProcessedLidarFrame`, including fault state for a scan with no valid points.
 - `sensor/lidar_buffer.py` — short rolling history of filtered frames by timestamp.
 - `fusion/hazard_decision.py` — rule-based fusion: a trusted LiDAR return at or below `emergency_stop_distance_m` forces STOP, otherwise camera region logic decides.
 - Unit tests for the LD19 reader (`tests/sensor/test_lidar.py`): packet angle interpolation and scan-splitting on angle wrap-around, including that invalid (zero-distance) points get filtered out downstream.
@@ -70,7 +70,7 @@ Remaining:
 **Goal:** Extend the 2D LiDAR into a 3D corridor-occupancy signal and fold it into the fused navigation command with confidence/fault handling. The LiDAR provides all depth; the tilt sweep is how it becomes 3D.
 
 The 2D LiDAR already sweeps azimuth internally (each scan carries multiple `angle_deg` samples). Elevation comes from a tilt servo rather than 3D LiDAR hardware. In sequence:
-- [ ] **Phase 0 (no new hardware):** angle-aware occupancy check in the fusion layer — today `generate_fused_navigation_hint()` only reads `LidarFrameSummary.nearest_distance_m` (nearest point across the whole scan, angle discarded) even though `FilteredLidarFrame.points_xyz`/`.angles_rad` retain every point. Restrict the near-range check to a walking-corridor arc before building further.
+- [ ] **Phase 0 (no new hardware):** angle-aware occupancy check in the fusion layer — today `generate_fused_navigation_hint()` only reads `LidarFrameSummary.nearest_distance_m` (nearest point across the whole scan, angle discarded) even though `ProcessedLidarFrame.points_xyz`/`.angles_rad` retain every point. Restrict the near-range check to a walking-corridor arc before building further.
 - [ ] **Phase 1:** tilt servo interface (`set_tilt_angle()`/`get_tilt_angle()`); extend `polar_scan_to_xyz()` with a `tilt_deg` parameter (it hardcodes `y = 0` today).
 - [ ] **Phase 2:** accumulate tilt-tagged scans into a rolling 3D point cloud, with ground-plane removal and a 3D corridor-occupancy check generalizing Phase 0. `LidarFrameBuffer` may be extendable for this, or a new module may be cleaner.
 - [ ] **Phase 3:** feed 3D corridor occupancy into `generate_fused_navigation_hint()` as the LiDAR-side trust signal.

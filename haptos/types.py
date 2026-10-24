@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from haptos.config import HAZARD_DEFAULT_RELEVANT_HALF_ANGLE_DEG
+
 BBox = Tuple[int, int, int, int]
 
 
@@ -46,13 +48,14 @@ class LidarFrameSummary:
     nearest_distance_m: Optional[float] = None
     median_distance_m: Optional[float] = None
     farthest_distance_m: Optional[float] = None
+    relevant_nearest_distance_m: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
 
 @dataclass(frozen=True)
-class FilteredLidarFrame:
+class ProcessedLidarFrame:
     """Cleaned LiDAR frame ready for projection or sensor fusion."""
 
     timestamp_ms: int
@@ -64,7 +67,9 @@ class FilteredLidarFrame:
     def point_count(self) -> int:
         return int(self.points_xyz.shape[0])
 
-    def to_summary(self) -> LidarFrameSummary:
+    def to_summary(
+        self, relevant_half_angle_deg: float = HAZARD_DEFAULT_RELEVANT_HALF_ANGLE_DEG
+    ) -> LidarFrameSummary:
         if self.distances_m.size == 0:
             return LidarFrameSummary(
                 timestamp_ms=self.timestamp_ms,
@@ -79,7 +84,18 @@ class FilteredLidarFrame:
             nearest_distance_m=float(np.min(self.distances_m)),
             median_distance_m=float(np.median(self.distances_m)),
             farthest_distance_m=float(np.max(self.distances_m)),
+            relevant_nearest_distance_m=self._relevant_nearest_distance_m(relevant_half_angle_deg),
         )
+
+    def _relevant_nearest_distance_m(self, relevant_half_angle_deg: float) -> Optional[float]:
+        """Nearest distance among points within a forward arc (0 rad = straight ahead)."""
+
+        half_angle_rad = np.deg2rad(relevant_half_angle_deg)
+        wrapped = (self.angles_rad + np.pi) % (2 * np.pi) - np.pi
+        is_relevant = np.abs(wrapped) <= half_angle_rad
+        if not np.any(is_relevant):
+            return None
+        return float(np.min(self.distances_m[is_relevant]))
 
 
 @dataclass(frozen=True)

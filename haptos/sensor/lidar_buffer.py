@@ -1,9 +1,9 @@
-"""Small timestamp buffer for filtered LiDAR frames."""
+"""Small timestamp buffer for processed LiDAR frames."""
 
 from collections import deque
 from typing import Optional
 
-from haptos.types import FilteredLidarFrame
+from haptos.types import ProcessedLidarFrame
 
 
 class LidarFrameBuffer:
@@ -15,12 +15,12 @@ class LidarFrameBuffer:
             raise ValueError("max_frames must be positive.")
         self.frames = deque(maxlen=max_frames)
 
-    # Append a new filtered frame, evicting the oldest if full.
-    def add(self, frame: FilteredLidarFrame) -> None:
+    # Append a new processed frame, evicting the oldest if full.
+    def add(self, frame: ProcessedLidarFrame) -> None:
         self.frames.append(frame)
 
     # Find the buffered frame with the timestamp nearest to the given one.
-    def closest_to(self, timestamp_ms: int) -> Optional[FilteredLidarFrame]:
+    def closest_to(self, timestamp_ms: int) -> Optional[ProcessedLidarFrame]:
         if not self.frames:
             return None
 

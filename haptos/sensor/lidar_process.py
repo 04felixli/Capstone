@@ -9,17 +9,20 @@ from haptos.config import (
     LIDAR_MIN_DISTANCE_M,
     LIDAR_MIN_QUALITY,
 )
-from haptos.types import FilteredLidarFrame, RawLidarScan
+from haptos.types import ProcessedLidarFrame, RawLidarScan
 
 
-# Drop out-of-range/low-quality points from a raw scan and build XYZ points from the rest.
-def filter_lidar_scan(
+# Drop out-of-range/low-quality points, convert the survivors to XYZ, and flag a fault if none remain.
+def process_lidar_scan(
     scan: RawLidarScan,
     min_distance_m: float = LIDAR_MIN_DISTANCE_M,
     max_distance_m: float = LIDAR_MAX_DISTANCE_M,
     min_quality: int = LIDAR_MIN_QUALITY,
-) -> FilteredLidarFrame:
-    """Clean a raw 2D LiDAR scan and convert it into XYZ points.
+) -> ProcessedLidarFrame:
+    """Turn a raw 2D LiDAR scan into a cleaned, XYZ-projected frame.
+
+    Filters out-of-range/low-quality points, converts the rest into XYZ points,
+    and reports a fault state when no points survive filtering.
 
     The coordinate convention is:
     x = left/right, y = vertical, z = forward.
@@ -41,11 +44,11 @@ def filter_lidar_scan(
     filtered_distances = distances[valid]
 
     if filtered_distances.size == 0:
-        return _empty_filtered_frame(scan.timestamp_ms, LIDAR_FAULT_NO_VALID_POINTS)
+        return _empty_processed_frame(scan.timestamp_ms, LIDAR_FAULT_NO_VALID_POINTS)
 
     points_xyz = polar_scan_to_xyz(filtered_angles, filtered_distances)
 
-    return FilteredLidarFrame(
+    return ProcessedLidarFrame(
         timestamp_ms=scan.timestamp_ms,
         points_xyz=points_xyz,
         distances_m=filtered_distances.astype(np.float32),
@@ -78,9 +81,9 @@ def _validate_scan_shapes(
         raise ValueError("LiDAR qualities must match the distance array shape.")
 
 
-# Build a zero-point FilteredLidarFrame carrying the given fault state.
-def _empty_filtered_frame(timestamp_ms: int, fault_state: str) -> FilteredLidarFrame:
-    return FilteredLidarFrame(
+# Build a zero-point ProcessedLidarFrame carrying the given fault state.
+def _empty_processed_frame(timestamp_ms: int, fault_state: str) -> ProcessedLidarFrame:
+    return ProcessedLidarFrame(
         timestamp_ms=timestamp_ms,
         points_xyz=np.empty((0, 3), dtype=np.float32),
         distances_m=np.empty((0,), dtype=np.float32),

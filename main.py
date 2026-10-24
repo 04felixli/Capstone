@@ -23,7 +23,7 @@ from haptos.cv.postprocess import filter_and_enrich_detections
 from haptos.cv.utils import FPSCounter, JsonlLogger, draw_overlay, format_console_result, sleep_to_maintain_rate
 from haptos.fusion.hazard_decision import generate_fused_navigation_hint
 from haptos.sensor.lidar_buffer import LidarFrameBuffer
-from haptos.sensor.lidar_filter import filter_lidar_scan
+from haptos.sensor.lidar_process import process_lidar_scan
 from haptos.sensor.ld19_reader import create_lidar_reader
 from haptos.types import FrameResult
 
@@ -136,9 +136,9 @@ def main() -> int:
             # iteration regardless of what the camera saw.
             if lidar_reader is not None and lidar_buffer is not None:
                 raw_lidar_scan = lidar_reader.read()
-                filtered_lidar = filter_lidar_scan(raw_lidar_scan)
-                lidar_buffer.add(filtered_lidar)
-                lidar_summary = filtered_lidar.to_summary()
+                processed_lidar = process_lidar_scan(raw_lidar_scan)
+                lidar_buffer.add(processed_lidar)
+                lidar_summary = processed_lidar.to_summary()
 
             # 4. Fusion: LiDAR near-range override, else camera region logic.
             command = generate_fused_navigation_hint(

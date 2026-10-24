@@ -36,7 +36,7 @@ haptos/
   sensor/
     ld19_reader.py    # binary LD19/STL-19P reader, wired into main.py via --lidar-source serial
     lidar_buffer.py
-    lidar_filter.py
+    lidar_process.py
   feedback/           # placeholder for planned Pi-side haptic/audio output
 tests/
   cv/

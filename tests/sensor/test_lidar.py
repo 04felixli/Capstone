@@ -8,7 +8,7 @@ import struct
 
 from haptos.config import LIDAR_FAULT_NO_VALID_POINTS, LIDAR_FAULT_NONE, LIDAR_SOURCE_NONE
 from haptos.sensor.lidar_buffer import LidarFrameBuffer
-from haptos.sensor.lidar_filter import filter_lidar_scan, polar_scan_to_xyz
+from haptos.sensor.lidar_process import process_lidar_scan, polar_scan_to_xyz
 from haptos.sensor.ld19_reader import _ScanAccumulator, create_lidar_reader, parse_ld19_packet
 from haptos.types import RawLidarScan
 
@@ -24,31 +24,31 @@ def _build_ld19_packet(start_angle_deg: float, end_angle_deg: float, distances_m
     return body + bytes([0])  # last byte is unused (no CRC check)
 
 
-class LidarFilterTests(unittest.TestCase):
-    def test_filter_keeps_only_useful_range(self):
+class LidarProcessTests(unittest.TestCase):
+    def test_process_keeps_only_useful_range(self):
         scan = RawLidarScan(
             timestamp_ms=100,
             angles_rad=np.zeros(7, dtype=np.float32),
             distances_m=np.array([0.1, 0.3, 1.0, 2.0, 2.1, np.nan, np.inf], dtype=np.float32),
         )
 
-        filtered = filter_lidar_scan(scan)
+        processed = process_lidar_scan(scan)
 
-        self.assertEqual(filtered.fault_state, LIDAR_FAULT_NONE)
-        np.testing.assert_allclose(filtered.distances_m, np.array([0.3, 1.0, 2.0], dtype=np.float32))
-        self.assertEqual(filtered.points_xyz.shape, (3, 3))
+        self.assertEqual(processed.fault_state, LIDAR_FAULT_NONE)
+        np.testing.assert_allclose(processed.distances_m, np.array([0.3, 1.0, 2.0], dtype=np.float32))
+        self.assertEqual(processed.points_xyz.shape, (3, 3))
 
-    def test_filter_returns_fault_when_no_points_are_in_range(self):
+    def test_process_returns_fault_when_no_points_are_in_range(self):
         scan = RawLidarScan(
             timestamp_ms=100,
             angles_rad=np.zeros(3, dtype=np.float32),
             distances_m=np.array([0.1, 2.5, np.nan], dtype=np.float32),
         )
 
-        filtered = filter_lidar_scan(scan)
+        processed = process_lidar_scan(scan)
 
-        self.assertEqual(filtered.fault_state, LIDAR_FAULT_NO_VALID_POINTS)
-        self.assertEqual(filtered.point_count(), 0)
+        self.assertEqual(processed.fault_state, LIDAR_FAULT_NO_VALID_POINTS)
+        self.assertEqual(processed.point_count(), 0)
 
     def test_polar_scan_to_xyz_uses_forward_z_axis(self):
         points = polar_scan_to_xyz(
@@ -58,6 +58,31 @@ class LidarFilterTests(unittest.TestCase):
 
         np.testing.assert_allclose(points[0], np.array([0.0, 0.0, 1.0]), atol=1e-6)
         np.testing.assert_allclose(points[1], np.array([2.0, 0.0, 0.0]), atol=1e-6)
+
+    def test_summary_relevant_nearest_distance_ignores_side_point(self):
+        # A near point straight to the side (90 degrees) must not count as the
+        # relevant-nearest distance, only the farther point ahead (0 rad) should.
+        scan = RawLidarScan(
+            timestamp_ms=100,
+            angles_rad=np.array([0.0, np.pi / 2.0], dtype=np.float32),
+            distances_m=np.array([1.2, 0.35], dtype=np.float32),
+        )
+
+        summary = process_lidar_scan(scan).to_summary()
+
+        self.assertAlmostEqual(summary.nearest_distance_m, 0.35, places=5)
+        self.assertAlmostEqual(summary.relevant_nearest_distance_m, 1.2, places=5)
+
+    def test_summary_relevant_nearest_distance_is_none_when_no_points_are_relevant(self):
+        scan = RawLidarScan(
+            timestamp_ms=100,
+            angles_rad=np.array([np.pi / 2.0], dtype=np.float32),
+            distances_m=np.array([0.35], dtype=np.float32),
+        )
+
+        summary = process_lidar_scan(scan).to_summary()
+
+        self.assertIsNone(summary.relevant_nearest_distance_m)
 
 
 class Ld19PacketParserTests(unittest.TestCase):
@@ -106,10 +131,10 @@ class ScanAccumulatorTests(unittest.TestCase):
         accumulator.feed(parse_ld19_packet(_build_ld19_packet(350.0, 358.0, [0] * 11 + [1000])))
         scan = accumulator.feed(parse_ld19_packet(_build_ld19_packet(4.0, 12.0, [100] * 12)))
 
-        filtered = filter_lidar_scan(scan)
+        processed = process_lidar_scan(scan)
 
-        self.assertEqual(filtered.point_count(), 1)
-        np.testing.assert_allclose(filtered.distances_m, [1.0])
+        self.assertEqual(processed.point_count(), 1)
+        np.testing.assert_allclose(processed.distances_m, [1.0])
 
 
 class CreateLidarReaderTests(unittest.TestCase):
@@ -126,14 +151,14 @@ class LidarFrameBufferTests(unittest.TestCase):
     def test_closest_to_returns_nearest_timestamp(self):
         buffer = LidarFrameBuffer(max_frames=3)
 
-        first = filter_lidar_scan(
+        first = process_lidar_scan(
             RawLidarScan(
                 timestamp_ms=100,
                 angles_rad=np.array([0.0], dtype=np.float32),
                 distances_m=np.array([1.0], dtype=np.float32),
             )
         )
-        second = filter_lidar_scan(
+        second = process_lidar_scan(
             RawLidarScan(
                 timestamp_ms=200,
                 angles_rad=np.array([0.0], dtype=np.float32),
