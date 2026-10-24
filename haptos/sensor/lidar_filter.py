@@ -12,6 +12,7 @@ from haptos.config import (
 from haptos.types import FilteredLidarFrame, RawLidarScan
 
 
+# Drop out-of-range/low-quality points from a raw scan and build XYZ points from the rest.
 def filter_lidar_scan(
     scan: RawLidarScan,
     min_distance_m: float = LIDAR_MIN_DISTANCE_M,
@@ -53,6 +54,7 @@ def filter_lidar_scan(
     )
 
 
+# Project polar (angle, distance) pairs onto the flat y=0 plane as XYZ points.
 def polar_scan_to_xyz(angles_rad: np.ndarray, distances_m: np.ndarray) -> np.ndarray:
     """Convert a 2D polar scan into simple 3D points."""
 
@@ -62,6 +64,7 @@ def polar_scan_to_xyz(angles_rad: np.ndarray, distances_m: np.ndarray) -> np.nda
     return np.column_stack((x, y, z)).astype(np.float32)
 
 
+# Ensure angle/distance/quality arrays are 1D and shape-matched before filtering.
 def _validate_scan_shapes(
     angles_rad: np.ndarray,
     distances_m: np.ndarray,
@@ -75,6 +78,7 @@ def _validate_scan_shapes(
         raise ValueError("LiDAR qualities must match the distance array shape.")
 
 
+# Build a zero-point FilteredLidarFrame carrying the given fault state.
 def _empty_filtered_frame(timestamp_ms: int, fault_state: str) -> FilteredLidarFrame:
     return FilteredLidarFrame(
         timestamp_ms=timestamp_ms,

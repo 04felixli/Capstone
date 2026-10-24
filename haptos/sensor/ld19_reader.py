@@ -22,10 +22,12 @@ class _ScanAccumulator:
     (for example 359.x degrees back to 0.x degrees).
     """
 
+    # Initialize with no points buffered and no last-seen angle.
     def __init__(self):
         self._scan_points: list[tuple[float, float, int]] = []
         self._last_angle_deg: Optional[float] = None
 
+    # Buffer a packet's points, emitting the prior scan once a wrap-around is detected.
     def feed(self, points: list[tuple[float, float, int]]) -> Optional[RawLidarScan]:
         """Add one packet's points; return the completed scan if this packet wrapped past 360, else None."""
         if self._last_angle_deg is not None and points[0][0] < self._last_angle_deg - 180.0:
@@ -37,11 +39,25 @@ class _ScanAccumulator:
         self._scan_points.extend(points)
         self._last_angle_deg = points[-1][0]
         return None
+    
+# Pack a list of (angle_deg, distance_mm, intensity) points into a RawLidarScan.
+def _points_to_scan(timestamp_ms: int, points: list[tuple[float, float, int]]) -> RawLidarScan:
+    angles_deg = np.array([p[0] for p in points], dtype=np.float32)
+    distances_m = np.array([p[1] / 1000.0 for p in points], dtype=np.float32)
+    qualities = np.array([p[2] for p in points], dtype=np.uint8)
+
+    return RawLidarScan(
+        timestamp_ms=timestamp_ms,
+        angles_rad=np.deg2rad(angles_deg).astype(np.float32),
+        distances_m=distances_m,
+        qualities=qualities,
+    )
 
 
 class Ld19Reader:
     """Read full 360-degree scans from an LD19-protocol LiDAR on a serial port."""
 
+    # Open the serial port and set up the packet accumulator.
     def __init__(self, port: str, baudrate: int = LIDAR_DEFAULT_BAUDRATE, serial_timeout_s: float = 0.5):
         if not port:
             raise ValueError("A LiDAR serial port is required, for example /dev/lidar or COM5.")
@@ -58,6 +74,7 @@ class Ld19Reader:
         self._serial = serial.Serial(port=port, baudrate=baudrate, timeout=serial_timeout_s)
         self._accumulator = _ScanAccumulator()
 
+    # Keep reading packets until a full 360-degree scan has accumulated.
     def read(self) -> RawLidarScan:
         while True:
             packet = self._read_packet()
@@ -69,9 +86,11 @@ class Ld19Reader:
             if scan is not None:
                 return scan
 
+    # Close the underlying serial connection.
     def close(self) -> None:
         self._serial.close()
 
+    # Sync on the header/verlen bytes and read one fixed-length packet.
     def _read_packet(self) -> bytes | None:
         """Sync on the header byte and read one fixed-length packet."""
         header = self._serial.read(1)
@@ -89,6 +108,7 @@ class Ld19Reader:
         return header + verlen + rest
 
 
+# Decode one LD19 packet's raw bytes into per-point (angle, distance, intensity) tuples.
 def parse_ld19_packet(packet: bytes) -> list[tuple[float, float, int]]:
     """Return (angle_deg, distance_mm, intensity) for each point in one packet."""
     start_angle_raw = int.from_bytes(packet[4:6], "little")
@@ -108,6 +128,7 @@ def parse_ld19_packet(packet: bytes) -> list[tuple[float, float, int]]:
     return points
 
 
+# Build the configured LiDAR reader (or None) from CLI source/port/baudrate options.
 def create_lidar_reader(
     source: str,
     port: Optional[str] = None,
@@ -120,16 +141,3 @@ def create_lidar_reader(
     if source == LIDAR_SOURCE_SERIAL:
         return Ld19Reader(port=port or "", baudrate=baudrate)
     raise ValueError(f"Unsupported LiDAR source: {source}")
-
-
-def _points_to_scan(timestamp_ms: int, points: list[tuple[float, float, int]]) -> RawLidarScan:
-    angles_deg = np.array([p[0] for p in points], dtype=np.float32)
-    distances_m = np.array([p[1] / 1000.0 for p in points], dtype=np.float32)
-    qualities = np.array([p[2] for p in points], dtype=np.uint8)
-
-    return RawLidarScan(
-        timestamp_ms=timestamp_ms,
-        angles_rad=np.deg2rad(angles_deg).astype(np.float32),
-        distances_m=distances_m,
-        qualities=qualities,
-    )
